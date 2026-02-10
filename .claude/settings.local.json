@@ -10,7 +10,10 @@
       "Bash(netstat:*)",
       "Bash(findstr:*)",
       "Bash(taskkill:*)",
-      "Bash(tasklist:*)"
+      "Bash(tasklist:*)",
+      "Bash(cargo build:*)",
+      "Bash(cargo run:*)",
+      "Bash(timeout /t 3:*)"
     ]
   }
 }

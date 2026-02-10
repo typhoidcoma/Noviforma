@@ -2,6 +2,7 @@
 members = [
     "src-tauri",
     "crates/noviforma-renderer",
+    "crates/noviforma-app",
 ]
 resolver = "2"
 
