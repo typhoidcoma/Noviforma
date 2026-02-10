@@ -8,3 +8,4 @@ wgpu = { workspace = true }
 winit = { workspace = true }
 tracing = { workspace = true }
 bytemuck = { version = "1.14", features = ["derive"] }
+image = "0.25"

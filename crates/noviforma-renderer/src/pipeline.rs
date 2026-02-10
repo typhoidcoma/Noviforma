@@ -1,4 +1,5 @@
 use crate::instance::{QuadVertex, TileInstance};
+use crate::texture::TextureManager;
 use wgpu::{
     BindGroup, BindGroupLayout, Buffer, Device, RenderPipeline, SurfaceConfiguration,
 };
@@ -23,12 +24,13 @@ pub struct Pipeline {
     pub viewport_buffer: Buffer,
     pub bind_group: BindGroup,
     pub bind_group_layout: BindGroupLayout,
+    pub texture_manager: TextureManager,
     pub instance_capacity: usize,
 }
 
 impl Pipeline {
     /// Create a new render pipeline
-    pub fn new(device: &Device, config: &SurfaceConfiguration) -> Self {
+    pub fn new(device: &Device, queue: &wgpu::Queue, config: &SurfaceConfiguration) -> Self {
         // Load shader
         let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("Grid Shader"),
@@ -43,29 +45,66 @@ impl Pipeline {
             mapped_at_creation: false,
         });
 
-        // Create bind group layout for viewport uniform
+        // Create texture manager with placeholder texture
+        let texture_manager = TextureManager::new(device, queue);
+
+        // Create bind group layout for viewport uniform, sampler, and texture
         let bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-            label: Some("Viewport Bind Group Layout"),
-            entries: &[wgpu::BindGroupLayoutEntry {
-                binding: 0,
-                visibility: wgpu::ShaderStages::VERTEX,
-                ty: wgpu::BindingType::Buffer {
-                    ty: wgpu::BufferBindingType::Uniform,
-                    has_dynamic_offset: false,
-                    min_binding_size: None,
+            label: Some("Texture Bind Group Layout"),
+            entries: &[
+                // Binding 0: Viewport uniform
+                wgpu::BindGroupLayoutEntry {
+                    binding: 0,
+                    visibility: wgpu::ShaderStages::VERTEX,
+                    ty: wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Uniform,
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
+                    },
+                    count: None,
                 },
-                count: None,
-            }],
+                // Binding 1: Texture sampler
+                wgpu::BindGroupLayoutEntry {
+                    binding: 1,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+                    count: None,
+                },
+                // Binding 2: Texture array view
+                wgpu::BindGroupLayoutEntry {
+                    binding: 2,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Texture {
+                        sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                        view_dimension: wgpu::TextureViewDimension::D2Array,
+                        multisampled: false,
+                    },
+                    count: None,
+                },
+            ],
         });
 
-        // Create bind group
+        // Create bind group with viewport, sampler, and texture
         let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some("Viewport Bind Group"),
+            label: Some("Texture Bind Group"),
             layout: &bind_group_layout,
-            entries: &[wgpu::BindGroupEntry {
-                binding: 0,
-                resource: viewport_buffer.as_entire_binding(),
-            }],
+            entries: &[
+                // Binding 0: Viewport uniform
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: viewport_buffer.as_entire_binding(),
+                },
+                // Binding 1: Texture sampler
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: wgpu::BindingResource::Sampler(&texture_manager.sampler),
+                },
+                // Binding 2: Texture view
+                wgpu::BindGroupEntry {
+                    binding: 2,
+                    resource: wgpu::BindingResource::TextureView(&texture_manager.view),
+                },
+            ],
         });
 
         // Create pipeline layout
@@ -136,6 +175,7 @@ impl Pipeline {
             viewport_buffer,
             bind_group,
             bind_group_layout,
+            texture_manager,
             instance_capacity,
         }
     }

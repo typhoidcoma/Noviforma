@@ -7,27 +7,36 @@ struct Viewport {
 @group(0) @binding(0)
 var<uniform> viewport: Viewport;
 
+@group(0) @binding(1)
+var texture_sampler: sampler;
+
+@group(0) @binding(2)
+var tile_texture: texture_2d_array<f32>;
+
 // Vertex input: unit quad (0,0 to 1,1)
 struct VertexInput {
     @location(0) position: vec2<f32>,
 }
 
-// Instance input: tile position, size, and color
+// Instance input: tile position, size, texture, and color
 struct InstanceInput {
     @location(1) pos_x: f32,
     @location(2) pos_y: f32,
     @location(3) size_w: f32,
     @location(4) size_h: f32,
-    @location(5) color_r: f32,
-    @location(6) color_g: f32,
-    @location(7) color_b: f32,
-    @location(8) color_a: f32,
+    @location(5) texture_index: f32,
+    @location(6) color_r: f32,
+    @location(7) color_g: f32,
+    @location(8) color_b: f32,
+    @location(9) color_a: f32,
 }
 
 // Vertex output / Fragment input
 struct VertexOutput {
     @builtin(position) clip_position: vec4<f32>,
-    @location(0) color: vec4<f32>,
+    @location(0) uv: vec2<f32>,
+    @location(1) texture_index: f32,
+    @location(2) color: vec4<f32>,
 }
 
 // Vertex shader: transforms unit quad to screen space using instance data
@@ -49,13 +58,21 @@ fn vs_main(
     let clip_y = 1.0 - (pixel_y / viewport.height) * 2.0;
 
     out.clip_position = vec4<f32>(clip_x, clip_y, 0.0, 1.0);
+    out.uv = vertex.position; // Unit quad position is already valid UV (0,0 to 1,1)
+    out.texture_index = instance.texture_index;
     out.color = vec4<f32>(instance.color_r, instance.color_g, instance.color_b, instance.color_a);
 
     return out;
 }
 
-// Fragment shader: outputs the color passed from vertex shader
+// Fragment shader: samples texture array or uses color
 @fragment
 fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
-    return in.color;
+    // If texture_index >= 0, sample the texture array; otherwise use solid color
+    if (in.texture_index >= 0.0) {
+        let array_index = i32(in.texture_index);
+        return textureSample(tile_texture, texture_sampler, in.uv, array_index);
+    } else {
+        return in.color;
+    }
 }

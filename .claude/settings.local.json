@@ -13,7 +13,8 @@
       "Bash(tasklist:*)",
       "Bash(cargo build:*)",
       "Bash(cargo run:*)",
-      "Bash(timeout /t 3:*)"
+      "Bash(timeout /t 3:*)",
+      "Bash(timeout 10 tail:*)"
     ]
   }
 }

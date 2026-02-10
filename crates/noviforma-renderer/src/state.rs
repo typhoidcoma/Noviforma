@@ -94,7 +94,7 @@ impl State {
         surface.configure(&device, &config);
 
         // Create render pipeline
-        let pipeline = Pipeline::new(&device, &config);
+        let pipeline = Pipeline::new(&device, &queue, &config);
 
         // Update viewport with initial dimensions
         pipeline.update_viewport(&queue, width, height);
@@ -139,6 +139,12 @@ impl State {
     /// Set total tile count for stats
     pub fn set_total_tiles(&mut self, total: usize) {
         self.total_tiles = total;
+    }
+
+    /// Load a texture into the GPU texture array
+    /// Returns the texture index on success
+    pub fn load_texture<P: AsRef<std::path::Path>>(&mut self, path: P) -> Result<u32, image::ImageError> {
+        self.pipeline.texture_manager.load_texture(&self.queue, path)
     }
 
     /// Render a frame with instanced quads

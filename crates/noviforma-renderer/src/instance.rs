@@ -1,5 +1,5 @@
 /// Represents a single tile instance for GPU rendering
-/// Layout: [x, y, w, h, r, g, b, a]
+/// Layout: [x, y, w, h, texture_index, r, g, b, a]
 #[repr(C)]
 #[derive(Copy, Clone, Debug)]
 pub struct TileInstance {
@@ -7,6 +7,7 @@ pub struct TileInstance {
     pub y: f32,
     pub w: f32,
     pub h: f32,
+    pub texture_index: f32, // -1.0 = no texture (use color), >= 0 = texture array index
     pub r: f32,
     pub g: f32,
     pub b: f32,
@@ -18,17 +19,33 @@ unsafe impl bytemuck::Pod for TileInstance {}
 unsafe impl bytemuck::Zeroable for TileInstance {}
 
 impl TileInstance {
-    /// Create a new tile instance
+    /// Create a new tile instance with color (no texture)
     pub fn new(x: f32, y: f32, w: f32, h: f32, color: [f32; 4]) -> Self {
         Self {
             x,
             y,
             w,
             h,
+            texture_index: -1.0, // No texture
             r: color[0],
             g: color[1],
             b: color[2],
             a: color[3],
+        }
+    }
+
+    /// Create a new tile instance with texture
+    pub fn new_textured(x: f32, y: f32, w: f32, h: f32, texture_index: u32) -> Self {
+        Self {
+            x,
+            y,
+            w,
+            h,
+            texture_index: texture_index as f32,
+            r: 1.0,
+            g: 1.0,
+            b: 1.0,
+            a: 1.0,
         }
     }
 
@@ -47,44 +64,58 @@ impl TileInstance {
             array_stride: std::mem::size_of::<TileInstance>() as wgpu::BufferAddress,
             step_mode: wgpu::VertexStepMode::Instance,
             attributes: &[
+                // Position X
                 wgpu::VertexAttribute {
                     offset: 0,
                     shader_location: 1,
                     format: wgpu::VertexFormat::Float32,
                 },
+                // Position Y
                 wgpu::VertexAttribute {
                     offset: 4,
                     shader_location: 2,
                     format: wgpu::VertexFormat::Float32,
                 },
+                // Size W
                 wgpu::VertexAttribute {
                     offset: 8,
                     shader_location: 3,
                     format: wgpu::VertexFormat::Float32,
                 },
+                // Size H
                 wgpu::VertexAttribute {
                     offset: 12,
                     shader_location: 4,
                     format: wgpu::VertexFormat::Float32,
                 },
+                // Texture Index
                 wgpu::VertexAttribute {
                     offset: 16,
                     shader_location: 5,
                     format: wgpu::VertexFormat::Float32,
                 },
+                // Color R
                 wgpu::VertexAttribute {
                     offset: 20,
                     shader_location: 6,
                     format: wgpu::VertexFormat::Float32,
                 },
+                // Color G
                 wgpu::VertexAttribute {
                     offset: 24,
                     shader_location: 7,
                     format: wgpu::VertexFormat::Float32,
                 },
+                // Color B
                 wgpu::VertexAttribute {
                     offset: 28,
                     shader_location: 8,
+                    format: wgpu::VertexFormat::Float32,
+                },
+                // Color A
+                wgpu::VertexAttribute {
+                    offset: 32,
+                    shader_location: 9,
                     format: wgpu::VertexFormat::Float32,
                 },
             ],
