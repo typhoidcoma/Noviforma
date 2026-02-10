@@ -1,0 +1,15 @@
+{
+  "name": "noviforma-workspace",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "cd apps/ui && npm run dev",
+    "build": "cd apps/ui && npm run build",
+    "tauri": "tauri",
+    "tauri:dev": "tauri dev",
+    "tauri:build": "tauri build"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^1.6.0"
+  }
+}

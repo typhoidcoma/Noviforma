@@ -1,0 +1,30 @@
+# Rust
+/target
+**/*.rs.bk
+Cargo.lock
+
+# Node
+node_modules/
+dist/
+*.local
+
+# Tauri
+src-tauri/target/
+
+# Build artifacts
+apps/ui/dist/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+npm-debug.log*
