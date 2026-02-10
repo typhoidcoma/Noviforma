@@ -1,5 +1,6 @@
-use crate::instance::TileInstance;
+use crate::instance::{TileInstance, ViewerInstance};
 use crate::pipeline::Pipeline;
+use crate::viewer_pipeline::ViewerPipeline;
 use crate::stats::PerfStats;
 use std::time::Instant;
 use wgpu::{Device, DeviceDescriptor, Features, Instance, Limits, Queue, Surface, SurfaceConfiguration, TextureUsages};
@@ -11,6 +12,7 @@ pub struct State {
     pub config: SurfaceConfiguration,
     pub size: (u32, u32),
     pub pipeline: Pipeline,
+    pub viewer_pipeline: ViewerPipeline,
     pub instances: Vec<TileInstance>,
     pub stats: PerfStats,
     pub total_tiles: usize,
@@ -96,6 +98,14 @@ impl State {
         // Create render pipeline
         let pipeline = Pipeline::new(&device, &queue, &config);
 
+        // Create viewer pipeline (shares bind group layout with grid pipeline)
+        let viewer_pipeline = ViewerPipeline::new(
+            &device,
+            &config,
+            &pipeline.bind_group_layout,
+            &pipeline.quad_vertex_buffer,
+        );
+
         // Update viewport with initial dimensions
         pipeline.update_viewport(&queue, width, height);
 
@@ -106,6 +116,7 @@ impl State {
             config,
             size: (width, height),
             pipeline,
+            viewer_pipeline,
             instances: Vec::new(),
             stats: PerfStats::new(),
             total_tiles: 0,
@@ -189,6 +200,60 @@ impl State {
                 render_pass.set_vertex_buffer(1, self.pipeline.instance_buffer.slice(..));
                 render_pass.draw(0..6, 0..self.instances.len() as u32);
             }
+        }
+
+        self.queue.submit(std::iter::once(encoder.finish()));
+        output.present();
+
+        // Record frame and maybe log stats
+        self.stats.record_frame();
+        self.stats.maybe_log_stats();
+
+        Ok(())
+    }
+
+    /// Render the fullscreen viewer with a single image
+    pub fn render_viewer(&mut self, instance: ViewerInstance) -> Result<(), wgpu::SurfaceError> {
+        // Update viewer instance buffer
+        self.viewer_pipeline.update_instance(&self.queue, &instance);
+
+        let output = self.surface.get_current_texture()?;
+        let view = output
+            .texture
+            .create_view(&wgpu::TextureViewDescriptor::default());
+
+        let mut encoder = self
+            .device
+            .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                label: Some("Viewer Render Encoder"),
+            });
+
+        {
+            let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("Viewer Render Pass"),
+                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                    view: &view,
+                    resolve_target: None,
+                    ops: wgpu::Operations {
+                        load: wgpu::LoadOp::Clear(wgpu::Color {
+                            r: 0.1,
+                            g: 0.1,
+                            b: 0.1,
+                            a: 1.0,
+                        }),
+                        store: wgpu::StoreOp::Store,
+                    },
+                })],
+                depth_stencil_attachment: None,
+                timestamp_writes: None,
+                occlusion_query_set: None,
+            });
+
+            render_pass.set_pipeline(&self.viewer_pipeline.render_pipeline);
+            render_pass.set_bind_group(0, &self.pipeline.bind_group, &[]);
+            render_pass.set_vertex_buffer(0, self.pipeline.quad_vertex_buffer.slice(..));
+            render_pass.set_vertex_buffer(1, self.viewer_pipeline.instance_buffer.slice(..));
+            render_pass.draw(0..6, 0..1); // Single instance
         }
 
         self.queue.submit(std::iter::once(encoder.finish()));

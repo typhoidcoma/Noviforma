@@ -123,6 +123,77 @@ impl TileInstance {
     }
 }
 
+/// Represents a fullscreen image viewer instance
+/// Layout: [aspect_ratio, scale, offset_x, offset_y, texture_index, _padding...]
+#[repr(C)]
+#[derive(Copy, Clone, Debug)]
+pub struct ViewerInstance {
+    pub aspect_ratio: f32,
+    pub scale: f32,
+    pub offset_x: f32,
+    pub offset_y: f32,
+    pub texture_index: f32,
+    pub _padding: [f32; 3], // Align to 16 bytes
+}
+
+// SAFETY: ViewerInstance is a POD type with explicit padding
+unsafe impl bytemuck::Pod for ViewerInstance {}
+unsafe impl bytemuck::Zeroable for ViewerInstance {}
+
+impl ViewerInstance {
+    /// Create a new viewer instance
+    pub fn new(aspect_ratio: f32, scale: f32, offset: (f32, f32), texture_index: u32) -> Self {
+        Self {
+            aspect_ratio,
+            scale,
+            offset_x: offset.0,
+            offset_y: offset.1,
+            texture_index: texture_index as f32,
+            _padding: [0.0; 3],
+        }
+    }
+
+    /// Instance buffer layout descriptor for wgpu
+    pub fn desc() -> wgpu::VertexBufferLayout<'static> {
+        wgpu::VertexBufferLayout {
+            array_stride: std::mem::size_of::<ViewerInstance>() as wgpu::BufferAddress,
+            step_mode: wgpu::VertexStepMode::Instance,
+            attributes: &[
+                // Aspect ratio
+                wgpu::VertexAttribute {
+                    offset: 0,
+                    shader_location: 1,
+                    format: wgpu::VertexFormat::Float32,
+                },
+                // Scale
+                wgpu::VertexAttribute {
+                    offset: 4,
+                    shader_location: 2,
+                    format: wgpu::VertexFormat::Float32,
+                },
+                // Offset X
+                wgpu::VertexAttribute {
+                    offset: 8,
+                    shader_location: 3,
+                    format: wgpu::VertexFormat::Float32,
+                },
+                // Offset Y
+                wgpu::VertexAttribute {
+                    offset: 12,
+                    shader_location: 4,
+                    format: wgpu::VertexFormat::Float32,
+                },
+                // Texture Index
+                wgpu::VertexAttribute {
+                    offset: 16,
+                    shader_location: 5,
+                    format: wgpu::VertexFormat::Float32,
+                },
+            ],
+        }
+    }
+}
+
 /// Vertex for the unit quad (will be instanced)
 #[repr(C)]
 #[derive(Copy, Clone, Debug)]

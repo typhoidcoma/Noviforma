@@ -1,28 +1,45 @@
 use noviforma_core::{Asset, Database, ThumbnailGenerator};
-use noviforma_renderer::instance::TileInstance;
+use noviforma_renderer::instance::{TileInstance, ViewerInstance};
 use noviforma_renderer::state::State;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use tracing::info;
 use winit::{
     application::ApplicationHandler,
-    event::{ElementState, MouseButton, WindowEvent},
+    event::{ElementState, MouseButton, MouseScrollDelta, WindowEvent},
     event_loop::{ActiveEventLoop, ControlFlow, EventLoop},
+    keyboard::{KeyCode, PhysicalKey},
     window::{Window, WindowId},
 };
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+enum ViewMode {
+    Grid,
+    Viewer { asset_id: i64 },
+}
 
 struct App {
     window: Option<Window>,
     state: Option<State>,
+    // View mode
+    view_mode: ViewMode,
     // Pan state
     pan_offset: (f32, f32),
     is_dragging: bool,
     last_mouse_pos: (f32, f32),
+    // Selection state
+    selected_tiles: HashSet<i64>, // Asset IDs
+    last_click_pos: Option<(f32, f32)>,
+    hovered_tile_id: Option<i64>, // Current hover
+    // Viewer state (independent from grid)
+    viewer_pan: (f32, f32),
+    viewer_zoom: f32,
     // Asset management
     assets: Vec<Asset>,
     texture_indices: HashMap<i64, u32>, // Maps asset ID to GPU texture index
     tile_size: f32,
     gutter: f32,
+    zoom_level: f32, // 1.0 = 100%, 0.5 = 50%, 3.0 = 300%
     // Database (shared)
     database: Arc<Database>,
     thumbnail_gen: Arc<ThumbnailGenerator>,
@@ -36,17 +53,22 @@ impl App {
         pan_offset: (f32, f32),
         assets: &[Asset],
         texture_indices: &HashMap<i64, u32>,
+        selected_tiles: &HashSet<i64>,
+        hovered_tile_id: Option<i64>,
         tile_size: f32,
         gutter: f32,
+        zoom_level: f32,
     ) -> Vec<TileInstance> {
         if assets.is_empty() {
             return Vec::new();
         }
 
-        let effective_tile_size = tile_size + gutter;
+        let base_tile_size = tile_size + gutter;
+        let effective_tile_size = base_tile_size * zoom_level;
 
-        // Calculate grid dimensions based on viewport width
-        let cols = ((viewport_width as f32) / effective_tile_size).floor().max(1.0) as u32;
+        // Calculate grid dimensions - use a reasonable number of columns that fits most content
+        // This creates a stable grid layout that doesn't reflow on every resize
+        let cols = 10u32; // Fixed 10-column layout
 
         // Calculate visible range with pan offset
         let start_x = (-pan_offset.0).max(0.0);
@@ -78,7 +100,22 @@ impl App {
                     instances.push(TileInstance::new_textured(x, y, tile_size, tile_size, texture_idx));
                 } else {
                     // Fallback to deterministic color if no texture
-                    let color = TileInstance::color_from_id(asset.id as u32);
+                    let mut color = TileInstance::color_from_id(asset.id as u32);
+
+                    // Darken selected tiles
+                    if selected_tiles.contains(&asset.id) {
+                        color[0] *= 0.6;
+                        color[1] *= 0.6;
+                        color[2] *= 0.6;
+                    }
+
+                    // Brighten hovered tile
+                    if Some(asset.id) == hovered_tile_id {
+                        color[0] = (color[0] * 1.3).min(1.0);
+                        color[1] = (color[1] * 1.3).min(1.0);
+                        color[2] = (color[2] * 1.3).min(1.0);
+                    }
+
                     instances.push(TileInstance::new(x, y, tile_size, tile_size, color));
                 }
             }
@@ -97,8 +134,11 @@ impl App {
                 self.pan_offset,
                 &self.assets,
                 &self.texture_indices,
+                &self.selected_tiles,
+                self.hovered_tile_id,
                 self.tile_size,
                 self.gutter,
+                self.zoom_level,
             );
             info!(
                 "Updating tiles: {} visible of {} total (pan offset: {:.0}, {:.0})",
@@ -110,13 +150,45 @@ impl App {
             state.update_tiles(instances);
         }
     }
+
+    /// Convert screen coordinates to tile ID (asset ID)
+    fn screen_to_tile_id(&self, screen_x: f32, screen_y: f32) -> Option<i64> {
+        if self.assets.is_empty() {
+            return None;
+        }
+
+        let base_tile_size = self.tile_size + self.gutter;
+        let effective_tile_size = base_tile_size * self.zoom_level;
+
+        // Convert screen to world coords (accounting for pan offset)
+        let world_x = screen_x - self.pan_offset.0;
+        let world_y = screen_y - self.pan_offset.1;
+
+        // Negative world coords = outside grid
+        if world_x < 0.0 || world_y < 0.0 {
+            return None;
+        }
+
+        // Calculate grid position
+        let col = (world_x / effective_tile_size).floor() as u32;
+        let row = (world_y / effective_tile_size).floor() as u32;
+
+        // Fixed 10-column grid layout (same as calculate_visible_tiles)
+        let cols = 10u32;
+
+        // Calculate tile index
+        let tile_idx = (row * cols + col) as usize;
+
+        // Return asset ID if tile exists
+        self.assets.get(tile_idx).map(|a| a.id)
+    }
 }
 
 impl ApplicationHandler for App {
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
         if self.window.is_none() {
             let window_attributes = Window::default_attributes()
-                .with_title("Noviforma - M1: Database + Thumbnails + GPU Textures")
+                .with_title("Noviforma - M2: Interactive Grid (Zoom, Select, Hover, Keyboard)")
                 .with_inner_size(winit::dpi::PhysicalSize::new(1600, 1000))
                 .with_min_inner_size(winit::dpi::PhysicalSize::new(800, 600));
 
@@ -195,9 +267,34 @@ impl ApplicationHandler for App {
                     match state {
                         ElementState::Pressed => {
                             self.is_dragging = true;
+                            self.last_click_pos = Some(self.last_mouse_pos);
                         }
                         ElementState::Released => {
                             self.is_dragging = false;
+
+                            // Only handle click selection in Grid mode
+                            if matches!(self.view_mode, ViewMode::Grid) {
+                                if let Some(click_pos) = self.last_click_pos {
+                                    let distance = ((self.last_mouse_pos.0 - click_pos.0).powi(2)
+                                        + (self.last_mouse_pos.1 - click_pos.1).powi(2))
+                                    .sqrt();
+
+                                    if distance < 5.0 {
+                                        if let Some(tile_id) = self.screen_to_tile_id(click_pos.0, click_pos.1) {
+                                            if self.selected_tiles.contains(&tile_id) {
+                                                self.selected_tiles.remove(&tile_id);
+                                                info!("Deselected tile {}", tile_id);
+                                            } else {
+                                                self.selected_tiles.insert(tile_id);
+                                                info!("Selected tile {}", tile_id);
+                                            }
+                                            self.update_visible_tiles();
+                                        }
+                                    }
+                                }
+                            }
+
+                            self.last_click_pos = None;
                         }
                     }
                 }
@@ -209,17 +306,205 @@ impl ApplicationHandler for App {
                     let delta_x = current_pos.0 - self.last_mouse_pos.0;
                     let delta_y = current_pos.1 - self.last_mouse_pos.1;
 
-                    self.pan_offset.0 += delta_x;
-                    self.pan_offset.1 += delta_y;
-
-                    self.update_visible_tiles();
+                    match self.view_mode {
+                        ViewMode::Grid => {
+                            // Grid panning
+                            self.pan_offset.0 += delta_x;
+                            self.pan_offset.1 += delta_y;
+                            self.update_visible_tiles();
+                        }
+                        ViewMode::Viewer { .. } => {
+                            // Viewer panning
+                            self.viewer_pan.0 += delta_x;
+                            self.viewer_pan.1 += delta_y;
+                            if let Some(window) = &self.window {
+                                window.request_redraw();
+                            }
+                        }
+                    }
+                } else if matches!(self.view_mode, ViewMode::Grid) {
+                    // Update hover in grid mode when not dragging
+                    let tile_id = self.screen_to_tile_id(current_pos.0, current_pos.1);
+                    if tile_id != self.hovered_tile_id {
+                        self.hovered_tile_id = tile_id;
+                        self.update_visible_tiles();
+                    }
                 }
 
                 self.last_mouse_pos = current_pos;
             }
+            WindowEvent::MouseWheel { delta, .. } => {
+                // Calculate zoom delta
+                let zoom_delta = match delta {
+                    MouseScrollDelta::LineDelta(_x, y) => {
+                        // Line-based scrolling (typical for mouse wheels)
+                        y * 0.1
+                    }
+                    MouseScrollDelta::PixelDelta(pos) => {
+                        // Pixel-based scrolling (trackpads, touch)
+                        (pos.y as f32) * 0.01
+                    }
+                };
+
+                match self.view_mode {
+                    ViewMode::Grid => {
+                        // Grid zoom with cursor centering
+                        let old_zoom = self.zoom_level;
+                        let new_zoom = (self.zoom_level * (1.0 + zoom_delta)).clamp(0.5, 3.0);
+
+                        if (new_zoom - old_zoom).abs() > 0.001 {
+                            let cursor_x = self.last_mouse_pos.0;
+                            let cursor_y = self.last_mouse_pos.1;
+                            let world_x_before = (cursor_x - self.pan_offset.0) / old_zoom;
+                            let world_y_before = (cursor_y - self.pan_offset.1) / old_zoom;
+
+                            self.zoom_level = new_zoom;
+
+                            self.pan_offset.0 = cursor_x - (world_x_before * new_zoom);
+                            self.pan_offset.1 = cursor_y - (world_y_before * new_zoom);
+
+                            info!("Grid zoom: {:.2}x", self.zoom_level);
+                            self.update_visible_tiles();
+                        }
+                    }
+                    ViewMode::Viewer { .. } => {
+                        // Viewer zoom (simpler, just scale)
+                        let old_zoom = self.viewer_zoom;
+                        let new_zoom = (self.viewer_zoom * (1.0 + zoom_delta)).clamp(0.25, 4.0);
+
+                        if (new_zoom - old_zoom).abs() > 0.001 {
+                            self.viewer_zoom = new_zoom;
+                            info!("Viewer zoom: {:.2}x", self.viewer_zoom);
+                            if let Some(window) = &self.window {
+                                window.request_redraw();
+                            }
+                        }
+                    }
+                }
+            }
+            WindowEvent::KeyboardInput { event, .. } => {
+                if event.state == ElementState::Pressed {
+                    match event.physical_key {
+                        PhysicalKey::Code(KeyCode::ArrowLeft) => {
+                            self.pan_offset.0 += 100.0;
+                            self.update_visible_tiles();
+                        }
+                        PhysicalKey::Code(KeyCode::ArrowRight) => {
+                            self.pan_offset.0 -= 100.0;
+                            self.update_visible_tiles();
+                        }
+                        PhysicalKey::Code(KeyCode::ArrowUp) => {
+                            self.pan_offset.1 += 100.0;
+                            self.update_visible_tiles();
+                        }
+                        PhysicalKey::Code(KeyCode::ArrowDown) => {
+                            self.pan_offset.1 -= 100.0;
+                            self.update_visible_tiles();
+                        }
+                        PhysicalKey::Code(KeyCode::Equal) | PhysicalKey::Code(KeyCode::NumpadAdd) => {
+                            // Zoom in
+                            self.zoom_level = (self.zoom_level * 1.2).min(3.0);
+                            info!("Zoom level: {:.2}x", self.zoom_level);
+                            self.update_visible_tiles();
+                        }
+                        PhysicalKey::Code(KeyCode::Minus) | PhysicalKey::Code(KeyCode::NumpadSubtract) => {
+                            // Zoom out
+                            self.zoom_level = (self.zoom_level * 0.8).max(0.5);
+                            info!("Zoom level: {:.2}x", self.zoom_level);
+                            self.update_visible_tiles();
+                        }
+                        PhysicalKey::Code(KeyCode::Enter) => {
+                            match self.view_mode {
+                                ViewMode::Grid => {
+                                    // Enter viewer mode with first selected tile (if it has a texture)
+                                    if let Some(&asset_id) = self.selected_tiles.iter().next() {
+                                        if self.texture_indices.contains_key(&asset_id) {
+                                            info!("Entering viewer mode for asset {}", asset_id);
+                                            self.view_mode = ViewMode::Viewer { asset_id };
+                                            self.viewer_pan = (0.0, 0.0);
+                                            self.viewer_zoom = 1.0;
+                                            if let Some(window) = &self.window {
+                                                window.request_redraw();
+                                            }
+                                        } else {
+                                            info!("Cannot enter viewer mode: asset {} has no texture loaded", asset_id);
+                                        }
+                                    }
+                                }
+                                ViewMode::Viewer { .. } => {
+                                    // Already in viewer, do nothing
+                                }
+                            }
+                        }
+                        PhysicalKey::Code(KeyCode::Escape) => {
+                            match self.view_mode {
+                                ViewMode::Grid => {
+                                    // In grid, deselect all
+                                    if !self.selected_tiles.is_empty() {
+                                        self.selected_tiles.clear();
+                                        self.update_visible_tiles();
+                                    }
+                                }
+                                ViewMode::Viewer { .. } => {
+                                    // Exit viewer mode
+                                    info!("Exiting viewer mode");
+                                    self.view_mode = ViewMode::Grid;
+                                    if let Some(window) = &self.window {
+                                        window.request_redraw();
+                                    }
+                                }
+                            }
+                        }
+                        _ => {}
+                    }
+                }
+            }
             WindowEvent::RedrawRequested => {
+                // Check if we need to exit viewer mode (no texture available)
+                if let ViewMode::Viewer { asset_id } = self.view_mode {
+                    let has_texture = self.texture_indices.contains_key(&asset_id);
+                    let asset_exists = self.assets.iter().any(|a| a.id == asset_id);
+
+                    if !has_texture || !asset_exists {
+                        if !has_texture {
+                            info!("No texture for asset {}, exiting viewer mode", asset_id);
+                        } else {
+                            info!("Asset {} not found, exiting viewer mode", asset_id);
+                        }
+                        self.view_mode = ViewMode::Grid;
+                        self.update_visible_tiles();
+                    }
+                }
+
                 if let Some(state) = &mut self.state {
-                    match state.render() {
+                    let render_result = match self.view_mode {
+                        ViewMode::Grid => {
+                            // Render grid with instanced tiles
+                            state.render()
+                        }
+                        ViewMode::Viewer { asset_id } => {
+                            // Render fullscreen viewer (we know texture exists from check above)
+                            let asset = self.assets.iter().find(|a| a.id == asset_id).unwrap();
+                            let texture_index = self.texture_indices.get(&asset_id).copied().unwrap();
+
+                            // Calculate aspect ratio (default to 1.0 if dimensions missing)
+                            let aspect_ratio = if let (Some(w), Some(h)) = (asset.width, asset.height) {
+                                w as f32 / h as f32
+                            } else {
+                                1.0
+                            };
+
+                            let instance = ViewerInstance::new(
+                                aspect_ratio,
+                                self.viewer_zoom,
+                                self.viewer_pan,
+                                texture_index,
+                            );
+                            state.render_viewer(instance)
+                        }
+                    };
+
+                    match render_result {
                         Ok(_) => {}
                         Err(wgpu::SurfaceError::Lost) => {
                             info!("Surface lost, reconfiguring...");
@@ -356,13 +641,20 @@ fn main() {
     let mut app = App {
         window: None,
         state: None,
+        view_mode: ViewMode::Grid,
         pan_offset: (0.0, 0.0),
         is_dragging: false,
         last_mouse_pos: (0.0, 0.0),
+        selected_tiles: HashSet::new(),
+        last_click_pos: None,
+        hovered_tile_id: None,
+        viewer_pan: (0.0, 0.0),
+        viewer_zoom: 1.0,
         assets,
         texture_indices: HashMap::new(), // Will be populated after thumbnails are loaded
         tile_size: 192.0, // Slightly larger for thumbnails
         gutter: 8.0,
+        zoom_level: 1.0, // Default 100% zoom
         database,
         thumbnail_gen,
     };
