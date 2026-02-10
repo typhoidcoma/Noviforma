@@ -1,3 +1,7 @@
+use crate::instance::TileInstance;
+use crate::pipeline::Pipeline;
+use crate::stats::PerfStats;
+use std::time::Instant;
 use wgpu::{Device, DeviceDescriptor, Features, Instance, Limits, Queue, Surface, SurfaceConfiguration, TextureUsages};
 
 pub struct State {
@@ -6,6 +10,10 @@ pub struct State {
     pub queue: Queue,
     pub config: SurfaceConfiguration,
     pub size: (u32, u32),
+    pub pipeline: Pipeline,
+    pub instances: Vec<TileInstance>,
+    pub stats: PerfStats,
+    pub total_tiles: usize,
 }
 
 impl State {
@@ -85,12 +93,22 @@ impl State {
 
         surface.configure(&device, &config);
 
+        // Create render pipeline
+        let pipeline = Pipeline::new(&device, &config);
+
+        // Update viewport with initial dimensions
+        pipeline.update_viewport(&queue, width, height);
+
         Ok(Self {
             surface,
             device,
             queue,
             config,
             size: (width, height),
+            pipeline,
+            instances: Vec::new(),
+            stats: PerfStats::new(),
+            total_tiles: 0,
         })
     }
 
@@ -101,12 +119,30 @@ impl State {
             self.config.width = new_width;
             self.config.height = new_height;
             self.surface.configure(&self.device, &self.config);
+            self.pipeline.update_viewport(&self.queue, new_width, new_height);
             tracing::info!("Resized surface to {}x{}", new_width, new_height);
         }
     }
 
-    /// Render a frame (clear to black for now)
-    pub fn render(&self) -> Result<(), wgpu::SurfaceError> {
+    /// Update tile instances for rendering
+    pub fn update_tiles(&mut self, instances: Vec<TileInstance>) {
+        self.instances = instances;
+        if !self.instances.is_empty() {
+            let upload_start = Instant::now();
+            self.pipeline.update_instances(&self.device, &self.queue, &self.instances);
+            let upload_time = upload_start.elapsed();
+            self.stats.record_upload(upload_time);
+        }
+        self.stats.update_tiles(self.instances.len(), self.total_tiles);
+    }
+
+    /// Set total tile count for stats
+    pub fn set_total_tiles(&mut self, total: usize) {
+        self.total_tiles = total;
+    }
+
+    /// Render a frame with instanced quads
+    pub fn render(&mut self) -> Result<(), wgpu::SurfaceError> {
         let output = self.surface.get_current_texture()?;
         let view = output
             .texture
@@ -119,16 +155,16 @@ impl State {
             });
 
         {
-            let _render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+            let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("Render Pass"),
                 color_attachments: &[Some(wgpu::RenderPassColorAttachment {
                     view: &view,
                     resolve_target: None,
                     ops: wgpu::Operations {
                         load: wgpu::LoadOp::Clear(wgpu::Color {
-                            r: 0.0,
-                            g: 0.0,
-                            b: 0.0,
+                            r: 0.1,
+                            g: 0.1,
+                            b: 0.1,
                             a: 1.0,
                         }),
                         store: wgpu::StoreOp::Store,
@@ -138,10 +174,23 @@ impl State {
                 timestamp_writes: None,
                 occlusion_query_set: None,
             });
+
+            // Draw instances if we have any
+            if !self.instances.is_empty() {
+                render_pass.set_pipeline(&self.pipeline.render_pipeline);
+                render_pass.set_bind_group(0, &self.pipeline.bind_group, &[]);
+                render_pass.set_vertex_buffer(0, self.pipeline.quad_vertex_buffer.slice(..));
+                render_pass.set_vertex_buffer(1, self.pipeline.instance_buffer.slice(..));
+                render_pass.draw(0..6, 0..self.instances.len() as u32);
+            }
         }
 
         self.queue.submit(std::iter::once(encoder.finish()));
         output.present();
+
+        // Record frame and maybe log stats
+        self.stats.record_frame();
+        self.stats.maybe_log_stats();
 
         Ok(())
     }

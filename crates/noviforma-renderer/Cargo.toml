@@ -7,3 +7,4 @@ edition = "2021"
 wgpu = { workspace = true }
 winit = { workspace = true }
 tracing = { workspace = true }
+bytemuck = { version = "1.14", features = ["derive"] }
