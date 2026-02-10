@@ -2,7 +2,15 @@
   "permissions": {
     "allow": [
       "Bash(npm install)",
-      "Bash(cargo check:*)"
+      "Bash(cargo check:*)",
+      "Bash(timeout 5 tail:*)",
+      "Bash(powershell -Command:*)",
+      "Bash(curl:*)",
+      "Bash(cargo clean:*)",
+      "Bash(netstat:*)",
+      "Bash(findstr:*)",
+      "Bash(taskkill:*)",
+      "Bash(tasklist:*)"
     ]
   }
 }
