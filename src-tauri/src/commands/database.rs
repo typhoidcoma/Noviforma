@@ -116,14 +116,6 @@ pub fn db_get_thumbnail_path(
         .map(|opt| opt.map(|p| p.to_string_lossy().to_string()))
 }
 
-#[tauri::command]
-pub fn db_clear_all_assets(
-    state: State<'_, DatabaseState>,
-) -> Result<usize, String> {
-    tracing::info!("Clearing all assets from database");
-    state.clear_all_assets()
-}
-
 // ============================================================
 // Tag Commands
 // ============================================================

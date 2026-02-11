@@ -1,5 +1,5 @@
-import { Component, createSignal, For, onCleanup, Show } from 'solid-js';
-import { dbScanDirectory, dbGenerateThumbnails, dbClearAllAssets, dbGetFolder, dbDeleteFolder, type Folder } from '../lib/database';
+import { Component, createSignal, createEffect, For, onCleanup, Show } from 'solid-js';
+import { dbScanDirectory, dbGenerateThumbnails, dbGetFolder, dbDeleteFolder, type Folder } from '../lib/database';
 import { listen } from '@tauri-apps/api/event';
 import { ProgressBar } from './ProgressBar';
 import { Modal } from './Modal';
@@ -36,6 +36,18 @@ const ProjectBrowser: Component<ProjectBrowserProps> = (props) => {
     (await unsubscribe)();
   });
 
+  // Auto-dismiss modal when thumbnail generation completes
+  createEffect(() => {
+    const progress = thumbProgress();
+    if (progress && progress.current === progress.total) {
+      // Progress complete, clear after short delay to show completion
+      setTimeout(() => {
+        setThumbProgress(null);
+        setGeneratingThumbs(false);
+      }, 1500); // 1.5 second delay to show "Complete" message
+    }
+  });
+
   const mockTags = [
     { name: 'Approved', count: 45, color: '#6c6' },
     { name: 'Review', count: 23, color: '#fc6' },
@@ -49,26 +61,6 @@ const ProjectBrowser: Component<ProjectBrowserProps> = (props) => {
     { name: 'SH020', tasks: 3, status: 'review' },
     { name: 'SH030', tasks: 8, status: 'active' },
   ];
-
-  const handleClearDatabase = async () => {
-    if (!props.dbInitialized) return;
-
-    const confirmed = confirm('Are you sure you want to clear all assets from the database?');
-    if (!confirmed) return;
-
-    try {
-      const deleted = await dbClearAllAssets();
-      console.log(`Cleared ${deleted} assets from database`);
-
-      // Notify parent to reload (will show empty state)
-      await props.onAssetsUpdated();
-
-      alert(`Database cleared: ${deleted} assets removed`);
-    } catch (error) {
-      console.error('Failed to clear database:', error);
-      alert(`Failed to clear database: ${error}`);
-    }
-  };
 
   const handleDeleteFolder = async (folderId: number, folderName: string, e: MouseEvent) => {
     e.stopPropagation(); // Prevent folder selection when clicking delete
@@ -103,6 +95,10 @@ const ProjectBrowser: Component<ProjectBrowserProps> = (props) => {
   const handleScanDirectory = async () => {
     if (!props.dbInitialized || scanning()) return;
 
+    // Clear any previous progress state
+    setThumbProgress(null);
+    setScanProgress('');
+
     // For now, use a hardcoded path - you can add a file picker later
     const directoryPath = prompt('Enter directory path to scan:');
     if (!directoryPath) return;
@@ -118,13 +114,13 @@ const ProjectBrowser: Component<ProjectBrowserProps> = (props) => {
       // Generate thumbnails after scanning
       setScanning(false);
       setGeneratingThumbs(true);
-      setThumbProgress({ current: 0, total: result.indexed, message: 'Starting...' });
+      // Backend events will drive progress - don't set manually
       setScanProgress(`Generating thumbnails for ${result.indexed} assets...`);
 
       console.log('Generating thumbnails...');
       const thumbResult = await dbGenerateThumbnails();
       console.log(`Thumbnails: ${thumbResult.generated} generated, ${thumbResult.skipped} skipped`);
-      setThumbProgress(null);
+      // Don't clear thumbProgress here - let completion event and createEffect handle it
 
       setScanProgress('Loading assets...');
 
@@ -156,6 +152,7 @@ const ProjectBrowser: Component<ProjectBrowserProps> = (props) => {
       console.error('Scan failed:', error);
       alert(`Scan failed: ${error}`);
       setScanProgress('');
+      setThumbProgress(null); // Clear progress on error
     } finally {
       setScanning(false);
       setGeneratingThumbs(false);
@@ -330,15 +327,6 @@ const ProjectBrowser: Component<ProjectBrowserProps> = (props) => {
           title="Scan a directory for images"
         >
           <span>⟳</span> Scan Assets
-        </button>
-        <button
-          class="btn-footer"
-          onClick={handleClearDatabase}
-          disabled={!props.dbInitialized || scanning()}
-          style="margin-top: 4px; background: #6d2a2a;"
-          title="Clear all assets from database"
-        >
-          <span>🗑</span> Clear All
         </button>
       </div>
     </div>

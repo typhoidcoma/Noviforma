@@ -87,14 +87,6 @@ export async function dbGetThumbnailPath(assetId: number): Promise<string | null
   return await invoke('db_get_thumbnail_path', { assetId });
 }
 
-/**
- * Clear all assets from the database
- * Returns the number of assets deleted
- */
-export async function dbClearAllAssets(): Promise<number> {
-  return await invoke('db_clear_all_assets');
-}
-
 // ============================================================
 // Folder Functions
 // ============================================================

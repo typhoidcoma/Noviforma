@@ -343,13 +343,6 @@ impl Database {
         Ok(count)
     }
 
-    /// Clear all assets from the database
-    pub fn clear_all_assets(&self) -> Result<usize> {
-        let deleted = self.conn.execute("DELETE FROM assets", [])?;
-        tracing::info!("Cleared {} assets from database", deleted);
-        Ok(deleted)
-    }
-
     // ============================================================
     // Tag Methods
     // ============================================================

@@ -133,8 +133,8 @@ impl DatabaseState {
         };
 
         for (idx, asset) in assets.iter().enumerate() {
-            // Emit progress every 10 items or on first/last
-            if idx % 10 == 0 || idx == total - 1 {
+            // Emit progress every 5 items or on first/last (more frequent for smoother updates)
+            if idx % 5 == 0 || idx == total - 1 {
                 progress_callback(
                     idx + 1,
                     total,
@@ -226,18 +226,6 @@ impl DatabaseState {
         } else {
             Ok(None)
         }
-    }
-
-    /// Clear all assets from the database
-    pub fn clear_all_assets(&self) -> Result<usize, String> {
-        let db = self.db.lock().unwrap();
-        let db = db.as_ref().ok_or("Database not initialized")?;
-
-        let deleted = db.clear_all_assets()
-            .map_err(|e| format!("Failed to clear assets: {}", e))?;
-
-        tracing::info!("Cleared {} assets from database", deleted);
-        Ok(deleted)
     }
 
     // ============================================================

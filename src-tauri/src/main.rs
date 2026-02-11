@@ -21,7 +21,6 @@ fn main() {
             commands::database::db_get_asset,
             commands::database::db_count_assets,
             commands::database::db_get_thumbnail_path,
-            commands::database::db_clear_all_assets,
             // Tag commands
             commands::database::db_create_tag,
             commands::database::db_get_all_tags,
