@@ -86,6 +86,17 @@ const GridViewport: Component<GridViewportProps> = (props) => {
           .filter((id): id is number => id !== undefined);
         renderer!.markVisibleTextures(visibleAssetIds);
 
+        // Debug logging for coordinate verification
+        if (tiles.length > 0) {
+          const maxY = Math.max(...tiles.map(t => t.y + t.h));
+          const maxX = Math.max(...tiles.map(t => t.x + t.w));
+          console.log(`Visible tiles: ${tiles.length}, maxY: ${maxY}, maxX: ${maxX}, viewport: ${viewportWidth()}x${viewportHeight()}`);
+
+          if (maxY > viewportHeight() || maxX > viewportWidth()) {
+            console.warn('⚠️ Tiles exceed viewport bounds!', { maxX, maxY, viewportWidth: viewportWidth(), viewportHeight: viewportHeight() });
+          }
+        }
+
         // Convert to TileInstance with texture indices
         const tileInstances: TileInstance[] = tiles.map(t => {
           const asset = props.assets[t.id];
@@ -304,9 +315,24 @@ const GridViewport: Component<GridViewportProps> = (props) => {
     const asset = props.assets[viewerIndex()];
     if (!asset) return;
 
-    const textureIndex = assetTextureMap.get(asset.id) ?? -1;
-    if (textureIndex < 0) {
-      console.warn('Texture not loaded for asset:', asset.id);
+    let textureIndex = renderer.getCurrentTextureSlot(asset.id);
+
+    // If texture not loaded, trigger async load
+    if (textureIndex < 0 && asset.thumbnail_path) {
+      console.log('Loading texture for viewer:', asset.id);
+      const thumbnailUrl = getThumbnailUrl(asset.thumbnail_path);
+
+      renderer.loadTexture(asset.id, thumbnailUrl).then(idx => {
+        if (idx >= 0) {
+          assetTextureMap.set(asset.id, idx);
+          // Re-render once loaded
+          renderViewer();
+        } else {
+          console.error('Failed to load texture for asset', asset.id);
+        }
+      });
+
+      // Don't render invalid texture, wait for load
       return;
     }
 
@@ -371,6 +397,30 @@ const GridViewport: Component<GridViewportProps> = (props) => {
 
     if (containerRef) {
       containerRef.style.cursor = 'default';
+    }
+
+    // Resync texture map with current cache state
+    if (renderer) {
+      const needsReload: number[] = [];
+
+      for (const [assetId, cachedIndex] of assetTextureMap) {
+        const currentSlot = renderer.getCurrentTextureSlot(assetId);
+
+        if (currentSlot >= 0) {
+          // Texture still loaded, update map if slot changed
+          if (currentSlot !== cachedIndex) {
+            assetTextureMap.set(assetId, currentSlot);
+          }
+        } else {
+          // Texture was evicted, remove from map
+          assetTextureMap.delete(assetId);
+          needsReload.push(assetId);
+        }
+      }
+
+      if (needsReload.length > 0) {
+        console.log(`Reloading ${needsReload.length} evicted textures after viewer exit`);
+      }
     }
 
     scheduleUpdate();
@@ -667,9 +717,10 @@ const GridViewport: Component<GridViewportProps> = (props) => {
                     const asset = props.assets[tile.id];
                     if (!asset) return null;
 
-                    // Position label below the tile
-                    const labelTop = tile.y + tile.h + 2;
-                    const labelLeft = tile.x;
+                    // Convert viewport-relative coords back to absolute coords for scrolling container
+                    // tile.y is viewport-relative (has scrollTop subtracted), add it back
+                    const labelTop = tile.y + scrollTop() + tile.h + 2;
+                    const labelLeft = tile.x + scrollLeft();
                     const labelWidth = tile.w;
 
                     return (

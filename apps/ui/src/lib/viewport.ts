@@ -77,6 +77,9 @@ export function calculateContentHeight(totalItems: number, tileSize: number, gut
   const rows = Math.ceil(totalItems / cols);
   const effectiveTileHeight = tileSize + gutter;
 
-  // Last row doesn't need trailing gutter, so: (rows - 1) * effectiveTileHeight + tileSize
-  return (rows - 1) * effectiveTileHeight + tileSize;
+  // Account for tile labels below each tile (approx 25px for label height + 2px gap)
+  const labelHeight = 27;
+
+  // Last row doesn't need trailing gutter, so: (rows - 1) * effectiveTileHeight + tileSize + labelHeight
+  return (rows - 1) * effectiveTileHeight + tileSize + labelHeight;
 }

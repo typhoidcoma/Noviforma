@@ -614,6 +614,13 @@ export class WebGPURenderer {
   }
 
   /**
+   * Get current texture slot for asset, accounting for LRU eviction
+   */
+  getCurrentTextureSlot(assetId: number): number {
+    return this.textureCache.getSlot(assetId) ?? -1;
+  }
+
+  /**
    * Update tiles for grid rendering
    */
   updateTiles(tiles: TileInstance[]): void {
