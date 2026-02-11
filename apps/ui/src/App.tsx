@@ -106,7 +106,7 @@ const App: Component = () => {
 
       <aside class="right-panel">
         <Inspector
-          selectedAssets={selectedAssets()}
+          selectedAssets={selectedAssets().map(id => assets()[id]).filter(Boolean)}
           totalAssets={totalItems()}
         />
       </aside>

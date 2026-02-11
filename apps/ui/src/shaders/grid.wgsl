@@ -68,11 +68,11 @@ fn vs_main(
 // Fragment shader: samples texture array or uses color
 @fragment
 fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
-    // If texture_index >= 0, sample the texture array; otherwise use solid color
-    if (in.texture_index >= 0.0) {
-        let array_index = i32(in.texture_index);
-        return textureSample(tile_texture, texture_sampler, in.uv, array_index);
-    } else {
-        return in.color;
-    }
+    // Always sample texture at index 0, but blend based on whether we have a valid texture
+    let array_index = max(0, i32(in.texture_index));
+    let tex_color = textureSample(tile_texture, texture_sampler, in.uv, array_index);
+
+    // Use texture if texture_index >= 0, otherwise use solid color
+    let use_texture = f32(in.texture_index >= 0.0);
+    return mix(in.color, tex_color, use_texture);
 }

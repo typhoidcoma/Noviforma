@@ -16,11 +16,17 @@
         "minHeight": 600,
         "resizable": true,
         "fullscreen": false,
-        "transparent": true
+        "transparent": true,
+        "devtools": true,
+        "additionalBrowserArgs": "--enable-features=Vulkan,UseSkiaRenderer --enable-unsafe-webgpu"
       }
     ],
     "security": {
-      "csp": null
+      "csp": null,
+      "assetProtocol": {
+        "enable": true,
+        "scope": ["**"]
+      }
     }
   },
   "bundle": {

@@ -20,5 +20,19 @@ export function getAssetUrl(filePath: string): string {
  * @returns URL string for the thumbnail
  */
 export function getThumbnailUrl(thumbnailPath: string): string {
-  return convertFileSrc(thumbnailPath);
+  // Convert to absolute path if relative
+  let absolutePath = thumbnailPath;
+
+  // If path doesn't start with drive letter, make it absolute from current directory
+  if (!thumbnailPath.match(/^[a-zA-Z]:/)) {
+    // Tauri runs from src-tauri directory, so paths are relative to that
+    absolutePath = `I:/Projects/Developing/Noviforma/src-tauri/${thumbnailPath}`;
+  }
+
+  // Convert backslashes to forward slashes for web URLs
+  const normalized = absolutePath.replace(/\\/g, '/');
+
+  console.log('Converting thumbnail path:', { original: thumbnailPath, absolute: absolutePath, normalized });
+
+  return convertFileSrc(normalized);
 }

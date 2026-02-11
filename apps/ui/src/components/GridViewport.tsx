@@ -107,10 +107,10 @@ const GridViewport: Component<GridViewportProps> = (props) => {
           }
 
           return {
-            x: t.x,
-            y: t.y,
-            w: t.w,
-            h: t.h,
+            x: t.x * dpr(),
+            y: t.y * dpr(),
+            w: t.w * dpr(),
+            h: t.h * dpr(),
             textureIndex,
             r,
             g,
@@ -119,7 +119,31 @@ const GridViewport: Component<GridViewportProps> = (props) => {
           };
         });
 
-        renderer!.updateTiles(tileInstances);
+        // Add border instances for selected tiles
+        const selectedTiles = tiles.filter(t => props.selectedAssets.includes(t.id));
+        if (selectedTiles.length > 0) {
+          console.log('Adding borders for tiles:', selectedTiles.map(t => ({ id: t.id, x: t.x, y: t.y })));
+        }
+
+        const borderInstances: TileInstance[] = selectedTiles
+          .flatMap(t => {
+            const borderWidth = 3 * dpr();
+            const color = { r: 0.29, g: 0.56, b: 0.89, a: 1.0 }; // Bright blue #4a90e2
+
+            return [
+              // Top border
+              { x: t.x * dpr(), y: t.y * dpr(), w: t.w * dpr(), h: borderWidth, textureIndex: -1, ...color },
+              // Bottom border
+              { x: t.x * dpr(), y: (t.y + t.h) * dpr() - borderWidth, w: t.w * dpr(), h: borderWidth, textureIndex: -1, ...color },
+              // Left border
+              { x: t.x * dpr(), y: t.y * dpr(), w: borderWidth, h: t.h * dpr(), textureIndex: -1, ...color },
+              // Right border
+              { x: (t.x + t.w) * dpr() - borderWidth, y: t.y * dpr(), w: borderWidth, h: t.h * dpr(), textureIndex: -1, ...color },
+            ];
+          });
+
+        // Combine tiles and borders (borders rendered on top)
+        renderer!.updateTiles([...tileInstances, ...borderInstances]);
       }
 
       // Render frame
@@ -187,7 +211,7 @@ const GridViewport: Component<GridViewportProps> = (props) => {
     const y = clientY - rect.top + scrollTop();
 
     const tileSizeWithGutter = props.tileSize + gutter;
-    const cols = Math.floor(viewportWidth() / tileSizeWithGutter);
+    const cols = Math.max(1, Math.floor((viewportWidth() + gutter) / tileSizeWithGutter));
 
     if (cols === 0) return null;
 
@@ -208,6 +232,13 @@ const GridViewport: Component<GridViewportProps> = (props) => {
     if (viewMode() !== 'grid') return;
 
     const tileId = screenToTileId(e.clientX, e.clientY);
+    console.log('Click detected:', {
+      screenPos: { x: e.clientX, y: e.clientY },
+      tileId,
+      scrollPos: { left: scrollLeft(), top: scrollTop() },
+      viewportSize: { width: viewportWidth(), height: viewportHeight() },
+    });
+
     if (tileId === null) return;
 
     let newSelection: number[];

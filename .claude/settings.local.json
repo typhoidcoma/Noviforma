@@ -18,7 +18,8 @@
       "Bash(npm run build:*)",
       "Bash(NOVIFORMA_SCAN_DIR=\"C:\\\\Users\\\\tesse\\\\Documents\\\\ShareX\\\\Screenshots\\\\2026-02\" target/release/noviforma-app.exe:*)",
       "Bash(git add:*)",
-      "Bash(gh pr list:*)"
+      "Bash(gh pr list:*)",
+      "Bash(npm run dev:*)"
     ]
   }
 }

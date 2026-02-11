@@ -80,8 +80,16 @@ export class WebGPURenderer {
    */
   async init(canvas: HTMLCanvasElement): Promise<void> {
     // Check WebGPU support
+    console.log('WebGPU availability check:', {
+      gpu: navigator.gpu,
+      userAgent: navigator.userAgent
+    });
+
     if (!navigator.gpu) {
-      throw new Error('WebGPU is not supported in this browser');
+      const msg = 'WebGPU is not supported in this webview. Tauri WebView2 may not have WebGPU enabled by default.';
+      console.error(msg);
+      alert(msg + '\n\nPlease check the console for more information.');
+      throw new Error(msg);
     }
 
     // Request adapter
@@ -374,20 +382,45 @@ export class WebGPURenderer {
       // Fetch and decode image
       const response = await fetch(imageUrl);
       const blob = await response.blob();
+
+      // Load image to get dimensions for aspect ratio preservation
+      const img = new Image();
+      const objectUrl = URL.createObjectURL(blob);
+      img.src = objectUrl;
+      await img.decode();
+
+      // Calculate aspect-preserving dimensions that fit in 256x256
+      const maxSize = 256;
+      const aspectRatio = img.width / img.height;
+      let width, height;
+
+      if (aspectRatio > 1) {
+        // Landscape
+        width = maxSize;
+        height = Math.round(maxSize / aspectRatio);
+      } else {
+        // Portrait or square
+        height = maxSize;
+        width = Math.round(maxSize * aspectRatio);
+      }
+
+      // Create image bitmap with aspect-preserving dimensions
       const imageBitmap = await createImageBitmap(blob, {
-        resizeWidth: 256,
-        resizeHeight: 256,
+        resizeWidth: width,
+        resizeHeight: height,
         resizeQuality: 'high',
       });
 
-      // Copy to texture array
+      // Copy to texture array with correct dimensions
       const textureIndex = this.nextTextureSlot++;
       this.device.queue.copyExternalImageToTexture(
         { source: imageBitmap },
         { texture: this.textureArray, origin: [0, 0, textureIndex] },
-        { width: 256, height: 256, depthOrArrayLayers: 1 }
+        { width, height, depthOrArrayLayers: 1 }
       );
 
+      // Clean up
+      URL.revokeObjectURL(objectUrl);
       imageBitmap.close();
 
       // Store mapping
