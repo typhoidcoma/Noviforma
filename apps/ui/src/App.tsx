@@ -74,6 +74,9 @@ const App: Component = () => {
   const [filterMinRating, setFilterMinRating] = createSignal(0);
   const [filterShotId, setFilterShotId] = createSignal<number | null>(null);
 
+  // Grid reset trigger (increment to reset view)
+  const [resetTrigger, setResetTrigger] = createSignal(0);
+
   // Computed
   const totalItems = () => assets().length;
 
@@ -86,6 +89,13 @@ const App: Component = () => {
   // Unified asset loading with filters
   const loadFilteredAssets = async () => {
     if (!dbInitialized()) return;
+
+    // No folders → nothing to show
+    if (folders().length === 0) {
+      setAssets([]);
+      return;
+    }
+
     try {
       const filter: AssetFilter = {
         folderId: currentFolderId() ?? undefined,
@@ -171,10 +181,24 @@ const App: Component = () => {
 
   const handleAssetsUpdated = async () => {
     await Promise.all([loadFolders(), loadShots()]);
-    const current = await dbGetCurrentFolder();
-    if (current) {
-      setCurrentFolderId(current);
+
+    const allFolders = folders();
+    if (allFolders.length === 0) {
+      // No folders left — clear everything
+      setCurrentFolderId(null);
+      setAssets([]);
+      setSelectedAssets([]);
+      return;
     }
+
+    // Validate current folder still exists
+    const current = await dbGetCurrentFolder();
+    if (current && allFolders.some(f => f.id === current)) {
+      setCurrentFolderId(current);
+    } else {
+      setCurrentFolderId(null);
+    }
+
     await loadFilteredAssets();
   };
 
@@ -209,8 +233,7 @@ const App: Component = () => {
         <div class="viewport-header">
           <h2>Noviforma Grid</h2>
           <div class="viewport-actions">
-            <button class="btn-view-mode" title="Grid View">⊞</button>
-            <button class="btn-view-mode" title="List View">☰</button>
+            <button class="btn-view-mode" title="Recenter Grid" onClick={() => setResetTrigger(resetTrigger() + 1)}>⟐</button>
             <input
               type="search"
               placeholder="Search assets..."
@@ -249,6 +272,7 @@ const App: Component = () => {
               gutter={gutter}
               selectedAssets={selectedAssets()}
               onSelectionChange={setSelectedAssets}
+              resetTrigger={resetTrigger()}
             />
           ) : (
             <div style="display: flex; align-items: center; justify-content: center; height: 100%; color: #8a8e7a;">

@@ -1,4 +1,4 @@
-import { Component, createSignal, onMount, onCleanup, createEffect, For, Show } from 'solid-js';
+import { Component, createSignal, onMount, onCleanup, createEffect, on, For, Show } from 'solid-js';
 import { calculateVisibleTiles, GRID_PADDING } from '../lib/viewport';
 import { WebGPURenderer, type TileInstance } from '../lib/webgpu-renderer';
 import { getThumbnailUrl } from '../lib/asset-urls';
@@ -14,6 +14,7 @@ interface GridViewportProps {
   gutter: number;
   selectedAssets: number[];
   onSelectionChange: (selectedIds: number[]) => void;
+  resetTrigger?: number;
 }
 
 const GridViewport: Component<GridViewportProps> = (props) => {
@@ -985,6 +986,13 @@ const GridViewport: Component<GridViewportProps> = (props) => {
     const _ = props.selectedAssets.length;
     scheduleUpdate();
   });
+
+  // React to external reset trigger (explicit tracking to avoid resetGridView's signal reads)
+  createEffect(on(() => props.resetTrigger, (trigger) => {
+    if (trigger && trigger > 0) {
+      resetGridView();
+    }
+  }));
 
   // Load textures when assets change
   createEffect(() => {
