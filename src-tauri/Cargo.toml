@@ -15,6 +15,7 @@ serde_json = { workspace = true }
 tokio = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
+rayon = "1.10"
 noviforma-core = { path = "../crates/noviforma-core" }
 
 [features]

@@ -108,70 +108,78 @@ impl DatabaseState {
         self.generate_thumbnails_with_progress(|_, _, _| {})
     }
 
-    /// Generate thumbnails with progress callback
-    pub fn generate_thumbnails_with_progress<F>(&self, mut progress_callback: F) -> Result<ThumbnailResult, String>
+    /// Generate thumbnails with progress callback (parallel with rayon)
+    pub fn generate_thumbnails_with_progress<F>(&self, _progress_callback: F) -> Result<ThumbnailResult, String>
     where
         F: FnMut(usize, usize, &str),
     {
-        let db = self.db.lock().unwrap();
-        let db = db.as_ref().ok_or("Database not initialized")?;
+        use rayon::prelude::*;
 
-        let thumb_gen = self.thumb_gen.lock().unwrap();
-        let thumb_gen = thumb_gen.as_ref().ok_or("Thumbnail generator not initialized")?;
+        // 1. Acquire locks briefly to get data
+        let (assets, folder) = {
+            let db = self.db.lock().unwrap();
+            let db = db.as_ref().ok_or("Database not initialized")?;
 
-        // Get current folder
-        let folder_id = self.current_folder_id.lock().unwrap()
-            .ok_or("No folder selected")?;
+            let folder_id = self.current_folder_id.lock().unwrap()
+                .ok_or("No folder selected")?;
 
-        let folder = db.get_folder(folder_id)
-            .map_err(|e| format!("Failed to get folder: {}", e))?
-            .ok_or("Folder not found")?;
+            let folder = db.get_folder(folder_id)
+                .map_err(|e| format!("Failed to get folder: {}", e))?
+                .ok_or("Folder not found")?;
 
-        // Only generate thumbnails for assets in current folder
-        let assets = db.get_assets_by_folder(folder_id)
-            .map_err(|e| format!("Failed to get assets: {}", e))?;
+            let assets = db.get_assets_by_folder(folder_id)
+                .map_err(|e| format!("Failed to get assets: {}", e))?;
+
+            (assets, folder)
+        }; // db lock released
+
+        // 2. Clone thumb_gen for parallel use
+        let thumb_gen = {
+            let tg = self.thumb_gen.lock().unwrap();
+            tg.as_ref().ok_or("Thumbnail generator not initialized")?.clone()
+        }; // lock released
 
         let total = assets.len();
-        // Set shared progress counters (pollable from frontend)
         self.progress_total.store(total, Ordering::Relaxed);
         self.progress_current.store(0, Ordering::Relaxed);
 
-        let mut result = ThumbnailResult {
-            generated: 0,
-            skipped: 0,
-            errors: 0,
-        };
+        // 3. Process in parallel with rayon
+        let progress_current = &self.progress_current;
+        let folder_hash = &folder.hash;
 
-        for (idx, asset) in assets.iter().enumerate() {
-            // Update shared atomic counter for polling
-            self.progress_current.store(idx + 1, Ordering::Relaxed);
+        let results: Vec<(i64, ThumbOutcome)> = assets.par_iter().map(|asset| {
+            let outcome = if thumb_gen.exists(asset.id, folder_hash) {
+                ThumbOutcome::Skipped
+            } else {
+                match thumb_gen.generate(&asset.path, asset.id, folder_hash) {
+                    Ok(path) => ThumbOutcome::Generated(path),
+                    Err(e) => {
+                        tracing::warn!("Failed to generate thumbnail for {}: {}", asset.path, e);
+                        ThumbOutcome::Error
+                    }
+                }
+            };
+            progress_current.fetch_add(1, Ordering::Relaxed);
+            (asset.id, outcome)
+        }).collect();
 
-            // Also call the callback
-            progress_callback(
-                idx + 1,
-                total,
-                &format!("Processing {} of {}", idx + 1, total),
-            );
+        // 4. Batch update DB with results (re-acquire lock)
+        let mut result = ThumbnailResult { generated: 0, skipped: 0, errors: 0 };
 
-            // Skip if thumbnail already exists
-            if thumb_gen.exists(asset.id, &folder.hash) {
-                result.skipped += 1;
-                continue;
-            }
+        let db = self.db.lock().unwrap();
+        let db = db.as_ref().ok_or("Database not initialized")?;
 
-            match thumb_gen.generate(&asset.path, asset.id, &folder.hash) {
-                Ok(thumb_path) => {
-                    // Update database with thumbnail path
-                    let thumb_path_str = thumb_path.to_string_lossy().to_string();
-                    if let Err(e) = db.update_thumbnail(asset.id, &thumb_path_str) {
+        for (asset_id, outcome) in &results {
+            match outcome {
+                ThumbOutcome::Generated(path) => {
+                    let path_str = path.to_string_lossy().to_string();
+                    if let Err(e) = db.update_thumbnail(*asset_id, &path_str) {
                         tracing::warn!("Failed to update thumbnail path: {}", e);
                     }
                     result.generated += 1;
                 }
-                Err(e) => {
-                    tracing::warn!("Failed to generate thumbnail for {}: {}", asset.path, e);
-                    result.errors += 1;
-                }
+                ThumbOutcome::Skipped => result.skipped += 1,
+                ThumbOutcome::Error => result.errors += 1,
             }
         }
 
@@ -391,6 +399,12 @@ impl DatabaseState {
 
         Ok(())
     }
+}
+
+enum ThumbOutcome {
+    Generated(std::path::PathBuf),
+    Skipped,
+    Error,
 }
 
 #[derive(Debug, serde::Serialize)]

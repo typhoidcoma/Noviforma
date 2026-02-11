@@ -1,6 +1,5 @@
 import { Component, createSignal, onMount } from 'solid-js';
 import GridViewport from './components/GridViewport';
-import GridControls from './components/GridControls';
 import ProjectBrowser from './components/ProjectBrowser';
 import Inspector from './components/Inspector';
 import {
@@ -17,8 +16,8 @@ import {
 import './App.css';
 
 const App: Component = () => {
-  const [tileSize, setTileSize] = createSignal(128);
-  const [gutter, setGutter] = createSignal(8); // Grid spacing (default 8px)
+  const tileSize = 128;
+  const gutter = 32;
   const [selectedAssets, setSelectedAssets] = createSignal<number[]>([]);
   const [assets, setAssets] = createSignal<Asset[]>([]);
   const [folders, setFolders] = createSignal<Folder[]>([]);
@@ -125,14 +124,6 @@ const App: Component = () => {
           onAssetsUpdated={handleAssetsUpdated}
         />
 
-        <div class="controls-section">
-          <GridControls
-            tileSize={tileSize()}
-            gutter={gutter()}
-            onTileSizeChange={setTileSize}
-            onGutterChange={setGutter}
-          />
-        </div>
       </aside>
 
       <main class="center-viewport">
@@ -153,8 +144,8 @@ const App: Component = () => {
             <GridViewport
               assets={assets()}
               totalItems={totalItems()}
-              tileSize={tileSize()}
-              gutter={gutter()}
+              tileSize={tileSize}
+              gutter={gutter}
               selectedAssets={selectedAssets()}
               onSelectionChange={setSelectedAssets}
             />

@@ -1,7 +1,7 @@
 import { Component, createSignal, onMount, onCleanup, createEffect, For } from 'solid-js';
 import { calculateVisibleTiles } from '../lib/viewport';
 import { WebGPURenderer, type TileInstance } from '../lib/webgpu-renderer';
-import { getThumbnailUrl, getAssetUrl } from '../lib/asset-urls';
+import { getThumbnailUrl } from '../lib/asset-urls';
 import type { Asset } from '../lib/database';
 import './GridViewport.css';
 
@@ -113,15 +113,15 @@ const GridViewport: Component<GridViewportProps> = (props) => {
             textureIndex = assetTextureMap.get(asset.id) ?? -1;
 
             // Check for high-res texture when zoomed in
-            if (needsHires && asset.path) {
+            if (needsHires && asset.thumbnail_path) {
               const hiresSlot = renderer!.getHiresTextureSlot(asset.id);
               if (hiresSlot >= 0) {
                 textureIndex = hiresSlot + 256; // Encode as high-res
               } else if (!hiresLoadingSet.has(asset.id)) {
-                // Trigger async loading from original file
+                // Load from 1024px thumbnail cache (much faster than full original)
                 hiresLoadingSet.add(asset.id);
-                const originalUrl = getAssetUrl(asset.path);
-                renderer!.loadHiresTexture(asset.id, originalUrl).then(slot => {
+                const thumbUrl = getThumbnailUrl(asset.thumbnail_path);
+                renderer!.loadHiresTexture(asset.id, thumbUrl).then(slot => {
                   hiresLoadingSet.delete(asset.id);
                   if (slot >= 0) {
                     scheduleUpdate(); // Re-render with hires texture
