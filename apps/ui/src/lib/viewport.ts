@@ -22,6 +22,9 @@ export interface GridConfig {
   dpr: number;
 }
 
+/** Grid padding: inset from top-left in logical pixels */
+export const GRID_PADDING = 32;
+
 /**
  * Calculate which tiles are visible in the viewport with pan/zoom support
  */
@@ -31,6 +34,7 @@ export function calculateVisibleTiles(config: GridConfig): TileRect[] {
   const effectiveTileWidth = (tileSize + gutter) * dpr;
   const effectiveTileHeight = (tileSize + gutter) * dpr;
   const cols = Math.max(1, Math.floor((viewportWidth * dpr + gutter * dpr) / effectiveTileWidth));
+  const paddingPx = GRID_PADDING * dpr;
 
   // Add margin for smooth panning (preload tiles just outside viewport)
   const margin = effectiveTileWidth * 2;
@@ -41,11 +45,17 @@ export function calculateVisibleTiles(config: GridConfig): TileRect[] {
   const viewportWorldRight = (viewportWidth * dpr - panX + margin) / zoom;
   const viewportWorldBottom = (viewportHeight * dpr - panY + margin) / zoom;
 
+  // Subtract grid padding to convert to grid-local coordinates for row/col lookup
+  const gridWorldLeft = viewportWorldLeft - paddingPx;
+  const gridWorldTop = viewportWorldTop - paddingPx;
+  const gridWorldRight = viewportWorldRight - paddingPx;
+  const gridWorldBottom = viewportWorldBottom - paddingPx;
+
   // Calculate visible row/column range
-  const startRow = Math.max(0, Math.floor(viewportWorldTop / effectiveTileHeight));
-  const endRow = Math.ceil(viewportWorldBottom / effectiveTileHeight);
-  const startCol = Math.max(0, Math.floor(viewportWorldLeft / effectiveTileWidth));
-  const endCol = Math.min(cols, Math.ceil(viewportWorldRight / effectiveTileWidth));
+  const startRow = Math.max(0, Math.floor(gridWorldTop / effectiveTileHeight));
+  const endRow = Math.ceil(gridWorldBottom / effectiveTileHeight);
+  const startCol = Math.max(0, Math.floor(gridWorldLeft / effectiveTileWidth));
+  const endCol = Math.min(cols, Math.ceil(gridWorldRight / effectiveTileWidth));
 
   const visibleTiles: TileRect[] = [];
 
@@ -55,9 +65,9 @@ export function calculateVisibleTiles(config: GridConfig): TileRect[] {
 
       if (id >= totalItems) break;
 
-      // World-space position (GPU will transform)
-      const worldX = col * effectiveTileWidth;
-      const worldY = row * effectiveTileHeight;
+      // World-space position with padding offset (GPU will transform)
+      const worldX = col * effectiveTileWidth + paddingPx;
+      const worldY = row * effectiveTileHeight + paddingPx;
 
       visibleTiles.push({
         id,

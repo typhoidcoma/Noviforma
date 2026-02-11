@@ -1,4 +1,4 @@
-import { Component, createSignal, onMount } from 'solid-js';
+import { Component, createSignal, onMount, onCleanup } from 'solid-js';
 import GridViewport from './components/GridViewport';
 import ProjectBrowser from './components/ProjectBrowser';
 import Inspector from './components/Inspector';
@@ -19,6 +19,45 @@ const App: Component = () => {
   const tileSize = 128;
   const gutter = 32;
   const [selectedAssets, setSelectedAssets] = createSignal<number[]>([]);
+
+  // Resizable panel widths
+  const [leftPanelWidth, setLeftPanelWidth] = createSignal(240);
+  const [rightPanelWidth, setRightPanelWidth] = createSignal(280);
+
+  let dragging: 'left' | 'right' | null = null;
+  let dragStartX = 0;
+  let dragStartWidth = 0;
+
+  const onResizeStart = (side: 'left' | 'right', e: MouseEvent) => {
+    e.preventDefault();
+    dragging = side;
+    dragStartX = e.clientX;
+    dragStartWidth = side === 'left' ? leftPanelWidth() : rightPanelWidth();
+    document.addEventListener('mousemove', onResizeMove);
+    document.addEventListener('mouseup', onResizeEnd);
+  };
+
+  const onResizeMove = (e: MouseEvent) => {
+    if (!dragging) return;
+    const delta = e.clientX - dragStartX;
+    const min = 160, max = 500;
+    if (dragging === 'left') {
+      setLeftPanelWidth(Math.max(min, Math.min(max, dragStartWidth + delta)));
+    } else {
+      setRightPanelWidth(Math.max(min, Math.min(max, dragStartWidth - delta)));
+    }
+  };
+
+  const onResizeEnd = () => {
+    dragging = null;
+    document.removeEventListener('mousemove', onResizeMove);
+    document.removeEventListener('mouseup', onResizeEnd);
+  };
+
+  onCleanup(() => {
+    document.removeEventListener('mousemove', onResizeMove);
+    document.removeEventListener('mouseup', onResizeEnd);
+  });
   const [assets, setAssets] = createSignal<Asset[]>([]);
   const [folders, setFolders] = createSignal<Folder[]>([]);
   const [currentFolderId, setCurrentFolderId] = createSignal<number | null>(null);
@@ -114,7 +153,9 @@ const App: Component = () => {
   };
 
   return (
-    <div class="app-container">
+    <div class="app-container" style={{
+      'grid-template-columns': `${leftPanelWidth()}px 4px 1fr 4px ${rightPanelWidth()}px`
+    }}>
       <aside class="left-panel">
         <ProjectBrowser
           dbInitialized={dbInitialized()}
@@ -123,8 +164,9 @@ const App: Component = () => {
           onFolderSelect={handleFolderChange}
           onAssetsUpdated={handleAssetsUpdated}
         />
-
       </aside>
+
+      <div class="resize-handle" onMouseDown={(e) => onResizeStart('left', e)} />
 
       <main class="center-viewport">
         <div class="viewport-header">
@@ -156,6 +198,8 @@ const App: Component = () => {
           )}
         </div>
       </main>
+
+      <div class="resize-handle" onMouseDown={(e) => onResizeStart('right', e)} />
 
       <aside class="right-panel">
         <Inspector

@@ -1,11 +1,22 @@
 .app-container {
   display: grid;
-  grid-template-columns: 240px 1fr 280px;
+  /* grid-template-columns set via inline style for resizable panels */
   width: 100vw;
   height: 100vh;
   overflow: hidden;
   background-color: #1a1a1a;
   color: #e0e0e0;
+}
+
+.resize-handle {
+  width: 4px;
+  cursor: col-resize;
+  background-color: #2a2a2a;
+  transition: background-color 0.15s;
+}
+
+.resize-handle:hover {
+  background-color: #4a90e2;
 }
 
 .left-panel,

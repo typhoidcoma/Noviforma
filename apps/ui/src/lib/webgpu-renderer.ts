@@ -243,7 +243,7 @@ export class WebGPURenderer {
   // High-res texture management
   private hiresTextureArray!: GPUTexture;
   private hiresTextureView!: GPUTextureView;
-  private hiresTextureArraySize = 16;
+  private hiresTextureArraySize = 64;
   private hiresTextureCache!: TextureCache;
 
   // State
@@ -301,7 +301,7 @@ export class WebGPURenderer {
 
     // Initialize texture caches
     this.textureCache = new TextureCache(this.textureArraySize, 256, this.device, this.textureArray);
-    this.hiresTextureCache = new TextureCache(this.hiresTextureArraySize, 2048, this.device, this.hiresTextureArray);
+    this.hiresTextureCache = new TextureCache(this.hiresTextureArraySize, 1024, this.device, this.hiresTextureArray);
 
     console.log('WebGPU renderer initialized successfully');
   }
@@ -372,12 +372,12 @@ export class WebGPURenderer {
       dimension: '2d-array',
     });
 
-    // Create high-res 2D texture array for zoomed-in tiles
+    // Create high-res 2D texture array for zoomed-in tiles (1024 matches thumbnail cache)
     this.hiresTextureArray = this.device.createTexture({
       label: 'HiRes Texture Array',
       size: {
-        width: 2048,
-        height: 2048,
+        width: 1024,
+        height: 1024,
         depthOrArrayLayers: this.hiresTextureArraySize,
       },
       format: 'rgba8unorm',
@@ -619,11 +619,9 @@ export class WebGPURenderer {
       let width, height;
 
       if (aspectRatio > 1) {
-        // Landscape
         width = maxSize;
         height = Math.round(maxSize / aspectRatio);
       } else {
-        // Portrait or square
         height = maxSize;
         width = Math.round(maxSize * aspectRatio);
       }
@@ -635,19 +633,31 @@ export class WebGPURenderer {
         resizeQuality: 'high',
       });
 
+      // Composite onto gray background, centered
+      const canvas = new OffscreenCanvas(maxSize, maxSize);
+      const ctx = canvas.getContext('2d')!;
+      ctx.fillStyle = '#808080';
+      ctx.fillRect(0, 0, maxSize, maxSize);
+      const ox = Math.round((maxSize - width) / 2);
+      const oy = Math.round((maxSize - height) / 2);
+      ctx.drawImage(imageBitmap, ox, oy);
+
+      const composited = await createImageBitmap(canvas);
+
       // Allocate slot (may evict LRU texture if full)
       const textureSlot = this.textureCache.allocateSlot(assetId, imageUrl);
 
-      // Copy to texture array with correct dimensions
+      // Copy full-size composited image to texture array
       this.device.queue.copyExternalImageToTexture(
-        { source: imageBitmap },
+        { source: composited },
         { texture: this.textureArray, origin: [0, 0, textureSlot] },
-        { width, height, depthOrArrayLayers: 1 }
+        { width: maxSize, height: maxSize, depthOrArrayLayers: 1 }
       );
 
       // Clean up
       URL.revokeObjectURL(objectUrl);
       imageBitmap.close();
+      composited.close();
 
       return textureSlot;
     } catch (error) {
@@ -692,15 +702,16 @@ export class WebGPURenderer {
       img.src = imageUrl;
       await img.decode();
 
-      const maxSize = 2048;
+      const maxSize = 1024;
       const aspectRatio = img.width / img.height;
       let width, height;
 
+      // Always scale to fill the max dimension (upscale from thumbnail cache)
       if (aspectRatio > 1) {
-        width = Math.min(maxSize, img.width);
-        height = Math.round(width / aspectRatio);
+        width = maxSize;
+        height = Math.round(maxSize / aspectRatio);
       } else {
-        height = Math.min(maxSize, img.height);
+        height = maxSize;
         width = Math.round(height * aspectRatio);
       }
 
@@ -711,15 +722,27 @@ export class WebGPURenderer {
         resizeQuality: 'high',
       });
 
+      // Composite onto gray background, centered
+      const canvas = new OffscreenCanvas(maxSize, maxSize);
+      const ctx = canvas.getContext('2d')!;
+      ctx.fillStyle = '#808080';
+      ctx.fillRect(0, 0, maxSize, maxSize);
+      const ox = Math.round((maxSize - width) / 2);
+      const oy = Math.round((maxSize - height) / 2);
+      ctx.drawImage(imageBitmap, ox, oy);
+
+      const composited = await createImageBitmap(canvas);
+
       const slot = this.hiresTextureCache.allocateSlot(assetId, imageUrl);
 
       this.device.queue.copyExternalImageToTexture(
-        { source: imageBitmap },
+        { source: composited },
         { texture: this.hiresTextureArray, origin: [0, 0, slot] },
-        { width, height, depthOrArrayLayers: 1 }
+        { width: maxSize, height: maxSize, depthOrArrayLayers: 1 }
       );
 
       imageBitmap.close();
+      composited.close();
 
       return slot;
     } catch (error) {

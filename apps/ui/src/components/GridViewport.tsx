@@ -1,5 +1,5 @@
 import { Component, createSignal, onMount, onCleanup, createEffect, For } from 'solid-js';
-import { calculateVisibleTiles } from '../lib/viewport';
+import { calculateVisibleTiles, GRID_PADDING } from '../lib/viewport';
 import { WebGPURenderer, type TileInstance } from '../lib/webgpu-renderer';
 import { getThumbnailUrl } from '../lib/asset-urls';
 import type { Asset } from '../lib/database';
@@ -61,9 +61,11 @@ const GridViewport: Component<GridViewportProps> = (props) => {
   // Map asset ID to texture index
   const assetTextureMap = new Map<number, number>();
 
-  // High-res texture loading
-  const HIRES_ZOOM_THRESHOLD = 300; // Switch to hires when tile > 300px on screen
+  // High-res texture loading with hysteresis to prevent oscillation
+  const HIRES_ENTER_THRESHOLD = 400; // Switch TO hires when tile > 400px on screen
+  const HIRES_LEAVE_THRESHOLD = 250; // Switch FROM hires when tile < 250px on screen
   const hiresLoadingSet = new Set<number>(); // Track in-flight hires loads
+  let hiresActive = false; // Track current hires state for hysteresis
 
   // Update visible tiles and render (batched via RAF)
   const scheduleUpdate = () => {
@@ -95,9 +97,14 @@ const GridViewport: Component<GridViewportProps> = (props) => {
           .filter((id): id is number => id !== undefined);
         renderer!.markVisibleTextures(visibleAssetIds);
 
-        // Check if we need high-res textures based on zoom level
+        // Check if we need high-res textures based on zoom level (with hysteresis)
         const tileScreenSize = props.tileSize * gridZoom() * dpr();
-        const needsHires = tileScreenSize > HIRES_ZOOM_THRESHOLD;
+        if (hiresActive) {
+          hiresActive = tileScreenSize > HIRES_LEAVE_THRESHOLD;
+        } else {
+          hiresActive = tileScreenSize > HIRES_ENTER_THRESHOLD;
+        }
+        const needsHires = hiresActive;
 
         if (needsHires) {
           renderer!.markVisibleHiresTextures(visibleAssetIds);
@@ -257,8 +264,12 @@ const GridViewport: Component<GridViewportProps> = (props) => {
 
     if (cols === 0) return null;
 
-    const col = Math.floor(worldX / tileSizeWithGutter);
-    const row = Math.floor(worldY / tileSizeWithGutter);
+    // Subtract grid padding to get grid-local coordinates
+    const gridX = worldX - GRID_PADDING * dpr();
+    const gridY = worldY - GRID_PADDING * dpr();
+
+    const col = Math.floor(gridX / tileSizeWithGutter);
+    const row = Math.floor(gridY / tileSizeWithGutter);
 
     if (col < 0 || col >= cols) return null;
 
@@ -538,7 +549,7 @@ const GridViewport: Component<GridViewportProps> = (props) => {
     const zoomSpeed = 0.001;
     const delta = -e.deltaY * zoomSpeed;
     const oldZoom = gridZoom();
-    const newZoom = (oldZoom * (1.0 + delta)).clamp(0.1, 10.0);
+    const newZoom = (oldZoom * (1.0 + delta)).clamp(0.1, 50.0);
 
     // Zoom-to-point: adjust pan to keep mouse position stable
     // world_pos = (screen_pos - pan) / zoom
@@ -642,8 +653,8 @@ const GridViewport: Component<GridViewportProps> = (props) => {
     const cols = Math.max(1, Math.floor((viewportWidth() + props.gutter) / tileSizeWithGutter));
     const rows = Math.ceil(props.totalItems / cols);
 
-    const gridWidth = cols * tileSizeWithGutter - props.gutter;
-    const gridHeight = rows * tileSizeWithGutter - props.gutter;
+    const gridWidth = cols * tileSizeWithGutter - props.gutter + GRID_PADDING * 2;
+    const gridHeight = rows * tileSizeWithGutter - props.gutter + GRID_PADDING * 2;
 
     // Calculate zoom to fit
     const zoomX = viewportWidth() / gridWidth;
@@ -679,9 +690,9 @@ const GridViewport: Component<GridViewportProps> = (props) => {
     const col = tileId % cols;
     const row = Math.floor(tileId / cols);
 
-    // Calculate world position of tile center
-    const tileWorldX = col * tileSizeWithGutter;
-    const tileWorldY = row * tileSizeWithGutter;
+    // Calculate world position of tile center (with grid padding offset)
+    const tileWorldX = col * tileSizeWithGutter + GRID_PADDING * dpr();
+    const tileWorldY = row * tileSizeWithGutter + GRID_PADDING * dpr();
     const tileCenterX = tileWorldX + (props.tileSize * dpr()) / 2;
     const tileCenterY = tileWorldY + (props.tileSize * dpr()) / 2;
 
@@ -689,8 +700,8 @@ const GridViewport: Component<GridViewportProps> = (props) => {
     const viewportCenterX = (viewportWidth() * dpr()) / 2;
     const viewportCenterY = (viewportHeight() * dpr()) / 2;
 
-    // Set zoom to 1.0 for comfortable viewing
-    const focusZoom = 1.0;
+    // Zoom so the tile fills the viewport vertically
+    const focusZoom = viewportHeight() / props.tileSize;
 
     // Calculate pan to center the tile
     // Forward: screen = world * zoom + pan
@@ -712,12 +723,12 @@ const GridViewport: Component<GridViewportProps> = (props) => {
     if (viewMode() === 'grid') {
       if (e.key === '+' || e.key === '=') {
         e.preventDefault();
-        setGridZoom((gridZoom() * 1.1).clamp(0.1, 10.0));
+        setGridZoom((gridZoom() * 1.1).clamp(0.1, 50.0));
         updateGridTransform();
         scheduleUpdate();
       } else if (e.key === '-') {
         e.preventDefault();
-        setGridZoom((gridZoom() / 1.1).clamp(0.1, 10.0));
+        setGridZoom((gridZoom() / 1.1).clamp(0.1, 50.0));
         updateGridTransform();
         scheduleUpdate();
       } else if (e.key === '0') {

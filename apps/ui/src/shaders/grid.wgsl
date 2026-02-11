@@ -74,15 +74,30 @@ fn vs_main(
     return out;
 }
 
+// Rounded rectangle SDF in UV space (0,0 to 1,1)
+// Returns signed distance: negative inside, positive outside
+fn roundedRectSDF(uv: vec2<f32>, radius: f32) -> f32 {
+    let half = vec2<f32>(0.5, 0.5);
+    let p = abs(uv - half) - half + vec2<f32>(radius);
+    return length(max(p, vec2<f32>(0.0))) - radius;
+}
+
 // Fragment shader: samples from low-res or high-res texture array
 @fragment
 fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
+    // Rounded corners: 0.0625 in UV space = 8px on a 128px tile
+    let corner_radius = 0.0625;
+    let d = roundedRectSDF(in.uv, corner_radius);
+    if (d > 0.0) {
+        discard;
+    }
+
     // Determine which texture tier to sample from
     // texture_index < 0: no texture (solid color)
     // texture_index 0-255: low-res array
     // texture_index 256+: high-res array (actual index = texture_index - 256)
     let is_hires = in.texture_index >= 256.0;
-    let hires_idx = clamp(i32(in.texture_index - 256.0), 0, 15);
+    let hires_idx = clamp(i32(in.texture_index - 256.0), 0, 63);
     let lores_idx = clamp(i32(in.texture_index), 0, 255);
 
     let hires_sample = textureSample(hires_texture, texture_sampler, in.uv, hires_idx);
