@@ -20,6 +20,8 @@ const GridViewport: Component<GridViewportProps> = (props) => {
   let containerRef: HTMLDivElement | undefined;
   let scrollerRef: HTMLDivElement | undefined;
   let canvasRef: HTMLCanvasElement | undefined;
+  let textCanvasRef: HTMLCanvasElement | undefined;
+  let textCtx: CanvasRenderingContext2D | null = null;
   let renderer: WebGPURenderer | null = null;
 
   const [viewportWidth, setViewportWidth] = createSignal(0);
@@ -85,17 +87,6 @@ const GridViewport: Component<GridViewportProps> = (props) => {
           .map(t => props.assets[t.id]?.id)
           .filter((id): id is number => id !== undefined);
         renderer!.markVisibleTextures(visibleAssetIds);
-
-        // Debug logging for coordinate verification
-        if (tiles.length > 0) {
-          const maxY = Math.max(...tiles.map(t => t.y + t.h));
-          const maxX = Math.max(...tiles.map(t => t.x + t.w));
-          console.log(`Visible tiles: ${tiles.length}, maxY: ${maxY}, maxX: ${maxX}, viewport: ${viewportWidth()}x${viewportHeight()}`);
-
-          if (maxY > viewportHeight() || maxX > viewportWidth()) {
-            console.warn('⚠️ Tiles exceed viewport bounds!', { maxX, maxY, viewportWidth: viewportWidth(), viewportHeight: viewportHeight() });
-          }
-        }
 
         // Convert to TileInstance with texture indices
         const tileInstances: TileInstance[] = tiles.map(t => {
@@ -165,6 +156,9 @@ const GridViewport: Component<GridViewportProps> = (props) => {
 
       // Render frame
       renderer!.render();
+
+      // Render text overlay on top of tiles
+      renderTextOverlay();
     });
   };
 
@@ -216,7 +210,26 @@ const GridViewport: Component<GridViewportProps> = (props) => {
     setDpr(newDpr);
 
     renderer.resize(newWidth, newHeight, newDpr);
+    resizeTextCanvas();
     scheduleUpdate();
+  };
+
+  // Resize text canvas to match viewport
+  const resizeTextCanvas = () => {
+    if (!textCanvasRef || !textCtx) return;
+
+    const width = viewportWidth();
+    const height = viewportHeight();
+    const devicePixelRatio = dpr();
+
+    // Size canvas for high-DPI displays
+    textCanvasRef.width = width * devicePixelRatio;
+    textCanvasRef.height = height * devicePixelRatio;
+    textCanvasRef.style.width = `${width}px`;
+    textCanvasRef.style.height = `${height}px`;
+
+    // Scale context to match DPR
+    textCtx.scale(devicePixelRatio, devicePixelRatio);
   };
 
   // Convert screen coordinates to tile ID
@@ -306,6 +319,48 @@ const GridViewport: Component<GridViewportProps> = (props) => {
     }
 
     renderViewer();
+  };
+
+  // Render text overlay on canvas
+  const renderTextOverlay = () => {
+    if (!textCtx || !textCanvasRef) return;
+
+    const width = viewportWidth();
+    const height = viewportHeight();
+
+    // Clear canvas
+    textCtx.clearRect(0, 0, width, height);
+
+    // Configure text styling
+    textCtx.font = '11px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
+    textCtx.textAlign = 'center';
+    textCtx.textBaseline = 'top';
+
+    // Render filename for each visible tile
+    const tiles = visibleTiles();
+    for (const tile of tiles) {
+      const asset = props.assets[tile.id];
+      if (!asset) continue;
+
+      // Position text at bottom of tile (small overlay)
+      const textX = tile.x + tile.w / 2;  // Center horizontally
+      const textY = tile.y + tile.h - 20;  // 20px from bottom
+
+      // Draw semi-transparent background
+      textCtx.fillStyle = 'rgba(0, 0, 0, 0.7)';
+      const textWidth = textCtx.measureText(asset.filename).width;
+      const padding = 4;
+      textCtx.fillRect(
+        textX - textWidth / 2 - padding,
+        textY - padding,
+        textWidth + padding * 2,
+        16 + padding * 2
+      );
+
+      // Draw white text
+      textCtx.fillStyle = '#ffffff';
+      textCtx.fillText(asset.filename, textX, textY);
+    }
   };
 
   // Render viewer mode
@@ -564,6 +619,12 @@ const GridViewport: Component<GridViewportProps> = (props) => {
       setRendererReady(true);
       console.log('WebGPU renderer initialized');
 
+      // Initialize text canvas
+      if (textCanvasRef) {
+        textCtx = textCanvasRef.getContext('2d');
+        console.log('Text canvas initialized');
+      }
+
       // Setup resize observer
       if (containerRef) {
         const resizeObserver = new ResizeObserver(handleResize);
@@ -710,38 +771,9 @@ const GridViewport: Component<GridViewportProps> = (props) => {
 
           <div class="grid-scroller" ref={scrollerRef} onScroll={handleScroll}>
             <div class="grid-content" style={{ height: `${contentHeight()}px` }} onClick={handleClick}>
-              {/* Filename labels overlay */}
-              <div class="tile-labels-overlay">
-                <For each={visibleTiles()}>
-                  {(tile) => {
-                    const asset = props.assets[tile.id];
-                    if (!asset) return null;
-
-                    // Convert viewport-relative coords back to absolute coords for scrolling container
-                    // tile.y is viewport-relative (has scrollTop subtracted), add it back
-                    const labelTop = tile.y + scrollTop() + tile.h + 2;
-                    const labelLeft = tile.x + scrollLeft();
-                    const labelWidth = tile.w;
-
-                    return (
-                      <div
-                        class="tile-label"
-                        style={{
-                          top: `${labelTop}px`,
-                          left: `${labelLeft}px`,
-                          width: `${labelWidth}px`,
-                        }}
-                        title={asset.filename}
-                      >
-                        {asset.filename}
-                      </div>
-                    );
-                  }}
-                </For>
-              </div>
             </div>
 
-            {/* Canvas as sibling to grid-content, not child */}
+            {/* WebGPU canvas for tiles */}
             <canvas
               id="gpu-grid-canvas"
               ref={canvasRef}
@@ -753,6 +785,21 @@ const GridViewport: Component<GridViewportProps> = (props) => {
                 height: '100%',
                 'pointer-events': 'none',
                 'z-index': 1
+              }}
+            />
+
+            {/* 2D canvas for text overlay */}
+            <canvas
+              id="text-overlay-canvas"
+              ref={textCanvasRef}
+              style={{
+                position: 'absolute',
+                top: 0,
+                left: 0,
+                width: '100%',
+                height: '100%',
+                'pointer-events': 'none',
+                'z-index': 2
               }}
             />
           </div>

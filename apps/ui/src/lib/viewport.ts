@@ -67,7 +67,8 @@ export function calculateVisibleTiles(config: GridConfig): TileRect[] {
 }
 
 /**
- * Calculate total content height for scrolling
+ * Calculate total content height for scrolling.
+ * Labels are now rendered as overlays on tiles, so no extra space needed.
  */
 export function calculateContentHeight(totalItems: number, tileSize: number, gutter: number, viewportWidth: number): number {
   if (totalItems === 0) return 0;
@@ -77,9 +78,6 @@ export function calculateContentHeight(totalItems: number, tileSize: number, gut
   const rows = Math.ceil(totalItems / cols);
   const effectiveTileHeight = tileSize + gutter;
 
-  // Account for tile labels below each tile (approx 25px for label height + 2px gap)
-  const labelHeight = 27;
-
-  // Last row doesn't need trailing gutter, so: (rows - 1) * effectiveTileHeight + tileSize + labelHeight
-  return (rows - 1) * effectiveTileHeight + tileSize + labelHeight;
+  // Last row doesn't need trailing gutter
+  return (rows - 1) * effectiveTileHeight + tileSize;
 }
