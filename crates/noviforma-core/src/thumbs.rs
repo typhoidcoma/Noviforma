@@ -29,13 +29,13 @@ impl ThumbnailGenerator {
     }
 
     /// Generate a thumbnail for an asset with folder context
-    /// Returns the path to the generated thumbnail
+    /// Returns the path to the generated thumbnail and the original image dimensions (width, height)
     pub fn generate<P: AsRef<Path>>(
         &self,
         asset_path: P,
         asset_id: i64,
         folder_hash: &str,
-    ) -> Result<PathBuf, ImageError> {
+    ) -> Result<(PathBuf, u32, u32), ImageError> {
         let asset_path = asset_path.as_ref();
 
         // Get folder-specific cache directory
@@ -61,7 +61,7 @@ impl ThumbnailGenerator {
                 thumb_path.display(),
                 folder_hash
             );
-            return Ok(thumb_path);
+            return Ok((thumb_path, w, h));
         }
 
         // Calculate aspect-preserving target dimensions
@@ -108,7 +108,7 @@ impl ThumbnailGenerator {
             folder_hash
         );
 
-        Ok(thumb_path)
+        Ok((thumb_path, w, h))
     }
 
     /// Check if thumbnail exists for an asset in a specific folder

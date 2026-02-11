@@ -1,5 +1,6 @@
-import { Component, Show, For } from 'solid-js';
+import { Component, Show, For, createSignal, createEffect } from 'solid-js';
 import type { Asset } from '../lib/database';
+import { getThumbnailUrl } from '../lib/asset-urls';
 import './Inspector.css';
 
 interface InspectorProps {
@@ -17,6 +18,55 @@ function formatBytes(bytes: number): string {
 }
 
 const Inspector: Component<InspectorProps> = (props) => {
+  const [zoom, setZoom] = createSignal(1);
+  const [panX, setPanX] = createSignal(0);
+  const [panY, setPanY] = createSignal(0);
+  let isPanning = false;
+  let lastMouseX = 0;
+  let lastMouseY = 0;
+
+  // Reset zoom/pan when selection changes
+  createEffect(() => {
+    const _assets = props.selectedAssets;
+    setZoom(1);
+    setPanX(0);
+    setPanY(0);
+  });
+
+  const handleWheel = (e: WheelEvent) => {
+    e.preventDefault();
+    const factor = e.deltaY < 0 ? 1.15 : 1 / 1.15;
+    const newZoom = Math.min(Math.max(zoom() * factor, 1), 20);
+    if (newZoom === 1) {
+      setPanX(0);
+      setPanY(0);
+    }
+    setZoom(newZoom);
+  };
+
+  const handleMouseDown = (e: MouseEvent) => {
+    if (zoom() <= 1) return;
+    isPanning = true;
+    lastMouseX = e.clientX;
+    lastMouseY = e.clientY;
+    (e.currentTarget as HTMLElement).style.cursor = 'grabbing';
+  };
+
+  const handleMouseMove = (e: MouseEvent) => {
+    if (!isPanning) return;
+    const dx = e.clientX - lastMouseX;
+    const dy = e.clientY - lastMouseY;
+    lastMouseX = e.clientX;
+    lastMouseY = e.clientY;
+    setPanX(panX() + dx);
+    setPanY(panY() + dy);
+  };
+
+  const handleMouseUp = (e: MouseEvent) => {
+    isPanning = false;
+    (e.currentTarget as HTMLElement).style.cursor = zoom() > 1 ? 'grab' : '';
+  };
+
   return (
     <div class="inspector">
       <div class="inspector-header">
@@ -37,6 +87,30 @@ const Inspector: Component<InspectorProps> = (props) => {
           const asset = props.selectedAssets[0];
           return (
             <div class="inspector-single">
+              <div
+                class="inspector-preview"
+                onWheel={handleWheel}
+                onMouseDown={handleMouseDown}
+                onMouseMove={handleMouseMove}
+                onMouseUp={handleMouseUp}
+                onMouseLeave={handleMouseUp}
+                style={{ cursor: zoom() > 1 ? 'grab' : 'default' }}
+              >
+                <Show when={asset.thumbnail_path} fallback={
+                  <div class="inspector-preview-empty">No preview</div>
+                }>
+                  <img
+                    src={getThumbnailUrl(asset.thumbnail_path!)}
+                    alt={asset.filename}
+                    class="inspector-preview-img"
+                    style={{
+                      transform: `scale(${zoom()}) translate(${panX() / zoom()}px, ${panY() / zoom()}px)`,
+                    }}
+                    draggable={false}
+                  />
+                </Show>
+              </div>
+
               <div class="inspector-section">
                 <h4>Asset Details</h4>
                 <div class="inspector-field">
@@ -67,7 +141,7 @@ const Inspector: Component<InspectorProps> = (props) => {
                 <h4>Metadata</h4>
                 <div class="inspector-field">
                   <label>Resolution:</label>
-                  <span>{asset.width && asset.height ? `${asset.width} × ${asset.height}` : '--'}</span>
+                  <span>{asset.width && asset.height ? `${asset.width} × ${asset.height} px` : '--'}</span>
                 </div>
                 <div class="inspector-field">
                   <label>Format:</label>
@@ -97,7 +171,6 @@ const Inspector: Component<InspectorProps> = (props) => {
               </div>
 
               <div class="inspector-actions">
-                <button class="btn-primary">Open in Viewer</button>
                 <button class="btn-secondary">Assign to Shot</button>
               </div>
             </div>

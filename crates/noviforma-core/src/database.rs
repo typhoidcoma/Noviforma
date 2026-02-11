@@ -279,6 +279,15 @@ impl Database {
         Ok(())
     }
 
+    /// Update asset dimensions (width and height)
+    pub fn update_dimensions(&self, asset_id: i64, width: u32, height: u32) -> Result<()> {
+        self.conn.execute(
+            "UPDATE assets SET width = ?1, height = ?2 WHERE id = ?3",
+            params![width, height, asset_id],
+        )?;
+        Ok(())
+    }
+
     /// Get all assets
     pub fn get_all_assets(&self) -> Result<Vec<Asset>> {
         let mut stmt = self.conn.prepare(

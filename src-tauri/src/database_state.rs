@@ -152,7 +152,7 @@ impl DatabaseState {
                 ThumbOutcome::Skipped
             } else {
                 match thumb_gen.generate(&asset.path, asset.id, folder_hash) {
-                    Ok(path) => ThumbOutcome::Generated(path),
+                    Ok((path, width, height)) => ThumbOutcome::Generated(path, width, height),
                     Err(e) => {
                         tracing::warn!("Failed to generate thumbnail for {}: {}", asset.path, e);
                         ThumbOutcome::Error
@@ -171,10 +171,13 @@ impl DatabaseState {
 
         for (asset_id, outcome) in &results {
             match outcome {
-                ThumbOutcome::Generated(path) => {
+                ThumbOutcome::Generated(path, width, height) => {
                     let path_str = path.to_string_lossy().to_string();
                     if let Err(e) = db.update_thumbnail(*asset_id, &path_str) {
                         tracing::warn!("Failed to update thumbnail path: {}", e);
+                    }
+                    if let Err(e) = db.update_dimensions(*asset_id, *width, *height) {
+                        tracing::warn!("Failed to update dimensions: {}", e);
                     }
                     result.generated += 1;
                 }
@@ -402,7 +405,7 @@ impl DatabaseState {
 }
 
 enum ThumbOutcome {
-    Generated(std::path::PathBuf),
+    Generated(std::path::PathBuf, u32, u32),
     Skipped,
     Error,
 }
