@@ -99,14 +99,25 @@ impl TextureManager {
         let path = path.as_ref();
         tracing::debug!("Loading texture {} from: {}", self.loaded_count, path.display());
 
-        // Load and resize image to standard thumbnail size
+        // Load and resize image to standard thumbnail size (preserve aspect ratio)
         let img = image::open(path)?;
-        let resized = img.resize_exact(
+        let thumbnail = img.thumbnail(THUMBNAIL_SIZE, THUMBNAIL_SIZE);
+
+        // Create a black 512x512 canvas to letterbox/pillarbox the thumbnail
+        let mut canvas = image::RgbaImage::from_pixel(
             THUMBNAIL_SIZE,
             THUMBNAIL_SIZE,
-            image::imageops::FilterType::Lanczos3,
+            image::Rgba([0, 0, 0, 255])
         );
-        let rgba = resized.to_rgba8();
+
+        // Calculate position to center the thumbnail
+        let thumb_width = thumbnail.width();
+        let thumb_height = thumbnail.height();
+        let x_offset = (THUMBNAIL_SIZE - thumb_width) / 2;
+        let y_offset = (THUMBNAIL_SIZE - thumb_height) / 2;
+
+        // Overlay the thumbnail onto the canvas
+        image::imageops::overlay(&mut canvas, &thumbnail.to_rgba8(), x_offset as i64, y_offset as i64);
 
         // Upload to specific array layer
         queue.write_texture(
@@ -120,7 +131,7 @@ impl TextureManager {
                 },
                 aspect: wgpu::TextureAspect::All,
             },
-            &rgba,
+            &canvas,
             wgpu::ImageDataLayout {
                 offset: 0,
                 bytes_per_row: Some(4 * THUMBNAIL_SIZE),
@@ -136,7 +147,8 @@ impl TextureManager {
         let texture_index = self.loaded_count;
         self.loaded_count += 1;
 
-        tracing::debug!("Loaded texture at index {}", texture_index);
+        tracing::debug!("Loaded texture at index {} ({}x{} centered in 512x512)",
+            texture_index, thumb_width, thumb_height);
         Ok(texture_index)
     }
 }

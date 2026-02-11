@@ -63,8 +63,11 @@ impl App {
             return Vec::new();
         }
 
-        let base_tile_size = tile_size + gutter;
-        let effective_tile_size = base_tile_size * zoom_level;
+        // Calculate zoomed tile size (this is what actually scales)
+        let zoomed_tile_size = tile_size * zoom_level;
+
+        // Gutter stays constant regardless of zoom
+        let effective_tile_size = zoomed_tile_size + gutter;
 
         // Calculate grid dimensions - use a reasonable number of columns that fits most content
         // This creates a stable grid layout that doesn't reflow on every resize
@@ -73,8 +76,6 @@ impl App {
         // Calculate visible range with pan offset
         let start_x = (-pan_offset.0).max(0.0);
         let start_y = (-pan_offset.1).max(0.0);
-        let end_x = start_x + viewport_width as f32;
-        let end_y = start_y + viewport_height as f32;
 
         // Calculate tile range
         let start_col = (start_x / effective_tile_size).floor() as u32;
@@ -95,9 +96,28 @@ impl App {
 
                 let asset = &assets[asset_idx];
 
+                // Calculate tile dimensions based on aspect ratio
+                let (tile_w, tile_h) = if let (Some(w), Some(h)) = (asset.width, asset.height) {
+                    let aspect = w as f32 / h as f32;
+                    if aspect > 1.0 {
+                        // Landscape: fit to width
+                        (zoomed_tile_size, zoomed_tile_size / aspect)
+                    } else {
+                        // Portrait or square: fit to height
+                        (zoomed_tile_size * aspect, zoomed_tile_size)
+                    }
+                } else {
+                    // No dimensions available, use square
+                    (zoomed_tile_size, zoomed_tile_size)
+                };
+
+                // Center the tile in its grid cell
+                let centered_x = x + (zoomed_tile_size - tile_w) * 0.5;
+                let centered_y = y + (zoomed_tile_size - tile_h) * 0.5;
+
                 // Use texture if available, otherwise use colored quad
                 if let Some(&texture_idx) = texture_indices.get(&asset.id) {
-                    instances.push(TileInstance::new_textured(x, y, tile_size, tile_size, texture_idx));
+                    instances.push(TileInstance::new_textured(centered_x, centered_y, tile_w, tile_h, texture_idx));
                 } else {
                     // Fallback to deterministic color if no texture
                     let mut color = TileInstance::color_from_id(asset.id as u32);
@@ -116,7 +136,7 @@ impl App {
                         color[2] = (color[2] * 1.3).min(1.0);
                     }
 
-                    instances.push(TileInstance::new(x, y, tile_size, tile_size, color));
+                    instances.push(TileInstance::new(centered_x, centered_y, tile_w, tile_h, color));
                 }
             }
         }

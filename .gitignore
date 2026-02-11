@@ -29,3 +29,10 @@ Thumbs.db
 *.log
 npm-debug.log*
 nul
+
+# Database and cache
+*.db
+*.db-shm
+*.db-wal
+noviforma-data/
+.cache/
