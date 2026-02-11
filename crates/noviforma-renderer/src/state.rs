@@ -112,6 +112,47 @@ impl State {
         })
     }
 
+    /// Create a State from already-initialized wgpu components
+    /// This avoids creating a second wgpu instance
+    pub fn from_parts(
+        surface: Surface<'static>,
+        device: Device,
+        queue: Queue,
+        config: SurfaceConfiguration,
+        _format: wgpu::TextureFormat,
+    ) -> Result<Self, String> {
+        // Extract dimensions before moving config
+        let width = config.width;
+        let height = config.height;
+
+        // Create rendering pipelines
+        let pipeline = Pipeline::new(&device, &queue, &config);
+
+        // Create viewer pipeline (shares bind group layout with grid pipeline)
+        let viewer_pipeline = ViewerPipeline::new(
+            &device,
+            &config,
+            &pipeline.bind_group_layout,
+            &pipeline.quad_vertex_buffer,
+        );
+
+        // Update viewport with initial dimensions
+        pipeline.update_viewport(&queue, width, height);
+
+        Ok(Self {
+            surface,
+            device,
+            queue,
+            config,
+            size: (width, height),
+            pipeline,
+            viewer_pipeline,
+            instances: Vec::new(),
+            stats: PerfStats::new(),
+            total_tiles: 0,
+        })
+    }
+
     /// Create a new wgpu state for rendering (for winit windows)
     pub async fn new(
         window: &winit::window::Window,

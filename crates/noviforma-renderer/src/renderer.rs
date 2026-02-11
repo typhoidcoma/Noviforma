@@ -12,6 +12,19 @@ impl Renderer {
         Ok(Self { state })
     }
 
+    /// Create a renderer from already-initialized wgpu components
+    /// This avoids creating a second wgpu instance when components are already set up
+    pub fn from_parts(
+        surface: Surface<'static>,
+        device: wgpu::Device,
+        queue: wgpu::Queue,
+        config: wgpu::SurfaceConfiguration,
+        format: wgpu::TextureFormat,
+    ) -> Result<Self, String> {
+        let state = State::from_parts(surface, device, queue, config, format)?;
+        Ok(Self { state })
+    }
+
     pub fn resize(&mut self, width: u32, height: u32) {
         self.state.resize(width, height);
     }
@@ -31,5 +44,10 @@ impl Renderer {
     /// Load a texture and return its index
     pub fn load_texture<P: AsRef<std::path::Path>>(&mut self, path: P) -> Result<u32, image::ImageError> {
         self.state.load_texture(path)
+    }
+
+    /// Render in viewer mode with a single fullscreen image
+    pub fn render_viewer(&mut self, instance: crate::ViewerInstance) -> Result<(), String> {
+        self.state.render_viewer(instance).map_err(|e| format!("Render error: {:?}", e))
     }
 }

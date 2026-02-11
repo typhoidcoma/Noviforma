@@ -1,4 +1,4 @@
-use crate::renderer_state::RendererState;
+use crate::renderer_state::{RendererState, ViewMode};
 use crate::database_state::DatabaseState;
 use serde::{Deserialize, Serialize};
 use tauri::{State, Window};
@@ -24,15 +24,13 @@ pub struct VisibleTilesPayload {
 
 #[tauri::command]
 pub fn renderer_init(
-    window: Window,
-    state: State<'_, RendererState>,
+    _window: Window,
+    _state: State<'_, RendererState>,
 ) -> Result<String, String> {
-    tracing::info!("Renderer init called");
-
-    // Initialize the renderer with the Tauri window
-    state.init(&window)?;
-
-    Ok("Renderer initialized".to_string())
+    // Renderer is now initialized in the Tauri setup hook (main.rs)
+    // This command is kept for backward compatibility but does nothing
+    tracing::debug!("Renderer init command called (no-op, already initialized in setup)");
+    Ok("Renderer already initialized".to_string())
 }
 
 #[tauri::command]
@@ -58,7 +56,7 @@ pub fn renderer_update_tiles(
 ) -> Result<(), String> {
     use noviforma_renderer::TileInstance;
 
-    tracing::debug!(
+    tracing::info!(
         "Renderer update tiles: {} tiles visible, {} selected, viewport: {}x{} @ {}",
         payload.tiles.len(),
         payload.selected_ids.len(),
@@ -69,7 +67,7 @@ pub fn renderer_update_tiles(
 
     // Convert TileData to TileInstance, using already-loaded textures only
     // Don't load new textures here to avoid blocking the render loop
-    let instances: Vec<TileInstance> = payload
+    let instances: Vec<(TileInstance, bool)> = payload
         .tiles
         .iter()
         .map(|tile| {
@@ -90,7 +88,7 @@ pub fn renderer_update_tiles(
                     instance.b = 1.5;
                 }
 
-                instance
+                (instance, true) // true = has texture
             } else {
                 // Fallback to color if no texture loaded yet
                 let mut color = TileInstance::color_from_id(tile.id);
@@ -99,10 +97,16 @@ pub fn renderer_update_tiles(
                     color[1] = (color[1] * 1.5).min(1.0);
                     color[2] = (color[2] * 1.5).min(1.0);
                 }
-                TileInstance::new(tile.x, tile.y, tile.w, tile.h, color)
+                (TileInstance::new(tile.x, tile.y, tile.w, tile.h, color), false) // false = no texture
             }
         })
         .collect();
+
+    let textured_count = instances.iter().filter(|(_, has_tex)| *has_tex).count();
+    let color_count = instances.len() - textured_count;
+    tracing::info!("Tiles: {} textured, {} colored (total {})", textured_count, color_count, payload.tiles.len());
+
+    let instances: Vec<TileInstance> = instances.into_iter().map(|(inst, _)| inst).collect();
 
     // Update tiles in renderer (this also renders the frame)
     renderer_state.update_tiles(instances, payload.tiles.len())?;
@@ -153,4 +157,54 @@ pub fn renderer_load_textures_batch(
 
     tracing::info!("Batch loaded {} textures", loaded_count);
     Ok(loaded_count)
+}
+
+#[tauri::command]
+pub fn renderer_enter_viewer(
+    asset_id: i64,
+    state: State<'_, RendererState>,
+) -> Result<(), String> {
+    tracing::info!("Entering viewer mode for asset {}", asset_id);
+    state.set_view_mode(ViewMode::Viewer { asset_id })
+}
+
+#[tauri::command]
+pub fn renderer_exit_viewer(
+    state: State<'_, RendererState>,
+) -> Result<(), String> {
+    tracing::info!("Exiting viewer mode");
+    state.set_view_mode(ViewMode::Grid)
+}
+
+#[tauri::command]
+pub fn renderer_render_viewer(
+    asset_id: i64,
+    aspect_ratio: f32,
+    state: State<'_, RendererState>,
+) -> Result<(), String> {
+    tracing::debug!("Rendering viewer for asset {} (aspect: {})", asset_id, aspect_ratio);
+    state.render_viewer(asset_id, aspect_ratio)
+}
+
+#[tauri::command]
+pub fn renderer_update_viewer_pan(
+    delta_x: f32,
+    delta_y: f32,
+    state: State<'_, RendererState>,
+) -> Result<(), String> {
+    // Get current pan and update
+    let pan = state.get_viewer_pan()?;
+    let new_pan = (pan.0 + delta_x, pan.1 + delta_y);
+    state.set_viewer_pan(new_pan)
+}
+
+#[tauri::command]
+pub fn renderer_update_viewer_zoom(
+    delta: f32,
+    state: State<'_, RendererState>,
+) -> Result<(), String> {
+    // Get current zoom and update
+    let zoom = state.get_viewer_zoom()?;
+    let new_zoom = (zoom * (1.0 + delta)).clamp(0.25, 4.0);
+    state.set_viewer_zoom(new_zoom)
 }

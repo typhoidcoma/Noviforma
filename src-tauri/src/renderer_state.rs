@@ -1,13 +1,24 @@
-use noviforma_renderer::{Renderer, TileInstance};
+use noviforma_renderer::{Renderer, TileInstance, ViewerInstance};
 use std::collections::HashMap;
 use std::sync::Mutex;
-use tauri::Window;
+use tauri::WebviewWindow;
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum ViewMode {
+    Grid,
+    Viewer { asset_id: i64 },
+}
 
 /// Tauri-managed renderer state
 pub struct RendererState {
     renderer: Mutex<Option<Renderer>>,
     /// Mapping of asset_id -> texture_index in GPU
     texture_map: Mutex<HashMap<i64, u32>>,
+    /// Current view mode
+    view_mode: Mutex<ViewMode>,
+    /// Viewer state (pan, zoom)
+    viewer_pan: Mutex<(f32, f32)>,
+    viewer_zoom: Mutex<f32>,
 }
 
 impl RendererState {
@@ -15,11 +26,14 @@ impl RendererState {
         Self {
             renderer: Mutex::new(None),
             texture_map: Mutex::new(HashMap::new()),
+            view_mode: Mutex::new(ViewMode::Grid),
+            viewer_pan: Mutex::new((0.0, 0.0)),
+            viewer_zoom: Mutex::new(1.0),
         }
     }
 
     /// Initialize the renderer with a Tauri 2.0 window
-    pub fn init(&self, window: &Window) -> Result<(), String> {
+    pub fn init<R: tauri::Runtime>(&self, window: &WebviewWindow<R>) -> Result<(), String> {
         // Get initial window size
         let size = window.inner_size()
             .map_err(|e| format!("Failed to get window size: {}", e))?;
@@ -54,7 +68,62 @@ impl RendererState {
 
         // Initialize renderer asynchronously using pollster to block
         let renderer = pollster::block_on(async {
-            Renderer::new(surface, width, height).await
+            // Inline renderer initialization to avoid creating a second wgpu instance
+            // Request adapter (prefer high-performance GPU)
+            let adapter = instance
+                .request_adapter(&wgpu::RequestAdapterOptions {
+                    power_preference: wgpu::PowerPreference::HighPerformance,
+                    compatible_surface: Some(&surface),
+                    force_fallback_adapter: false,
+                })
+                .await
+                .ok_or_else(|| "Failed to find suitable GPU adapter".to_string())?;
+
+            tracing::info!(
+                "Selected GPU adapter: {} ({:?})",
+                adapter.get_info().name,
+                adapter.get_info().backend
+            );
+
+            // Request device and queue
+            let (device, queue) = adapter
+                .request_device(
+                    &wgpu::DeviceDescriptor {
+                        label: Some("Noviforma Render Device"),
+                        required_features: wgpu::Features::empty(),
+                        required_limits: wgpu::Limits::default(),
+                    },
+                    None,
+                )
+                .await
+                .map_err(|e| format!("Failed to create device: {:?}", e))?;
+
+            // Get surface capabilities
+            let surface_caps = surface.get_capabilities(&adapter);
+            let surface_format = surface_caps
+                .formats
+                .iter()
+                .find(|f| f.is_srgb())
+                .copied()
+                .unwrap_or(surface_caps.formats[0]);
+
+            tracing::info!("Surface format: {:?}", surface_format);
+
+            // Configure surface
+            let config = wgpu::SurfaceConfiguration {
+                usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
+                format: surface_format,
+                width,
+                height,
+                present_mode: surface_caps.present_modes[0],
+                alpha_mode: surface_caps.alpha_modes[0],
+                view_formats: vec![],
+                desired_maximum_frame_latency: 2,
+            };
+            surface.configure(&device, &config);
+
+            // Create the renderer with the initialized state
+            noviforma_renderer::Renderer::from_parts(surface, device, queue, config, surface_format)
         })?;
 
         // Store renderer
@@ -139,5 +208,66 @@ impl RendererState {
     /// Get texture index for an asset (if loaded)
     pub fn get_texture_index(&self, asset_id: i64) -> Option<u32> {
         self.texture_map.lock().ok()?.get(&asset_id).copied()
+    }
+
+    /// Set view mode
+    pub fn set_view_mode(&self, mode: ViewMode) -> Result<(), String> {
+        let mut view_mode = self.view_mode.lock().map_err(|e| e.to_string())?;
+        *view_mode = mode;
+
+        // Reset viewer state when entering viewer mode
+        if matches!(mode, ViewMode::Viewer { .. }) {
+            *self.viewer_pan.lock().map_err(|e| e.to_string())? = (0.0, 0.0);
+            *self.viewer_zoom.lock().map_err(|e| e.to_string())? = 1.0;
+        }
+
+        tracing::info!("View mode changed to: {:?}", mode);
+        Ok(())
+    }
+
+    /// Get current view mode
+    pub fn get_view_mode(&self) -> Result<ViewMode, String> {
+        Ok(*self.view_mode.lock().map_err(|e| e.to_string())?)
+    }
+
+    /// Update viewer pan offset
+    pub fn set_viewer_pan(&self, pan: (f32, f32)) -> Result<(), String> {
+        *self.viewer_pan.lock().map_err(|e| e.to_string())? = pan;
+        Ok(())
+    }
+
+    /// Update viewer zoom
+    pub fn set_viewer_zoom(&self, zoom: f32) -> Result<(), String> {
+        *self.viewer_zoom.lock().map_err(|e| e.to_string())? = zoom.clamp(0.25, 4.0);
+        Ok(())
+    }
+
+    /// Get viewer pan offset
+    pub fn get_viewer_pan(&self) -> Result<(f32, f32), String> {
+        Ok(*self.viewer_pan.lock().map_err(|e| e.to_string())?)
+    }
+
+    /// Get viewer zoom
+    pub fn get_viewer_zoom(&self) -> Result<f32, String> {
+        Ok(*self.viewer_zoom.lock().map_err(|e| e.to_string())?)
+    }
+
+    /// Render in viewer mode with the given asset
+    pub fn render_viewer(&self, asset_id: i64, aspect_ratio: f32) -> Result<(), String> {
+        let texture_index = self.get_texture_index(asset_id)
+            .ok_or_else(|| format!("No texture loaded for asset {}", asset_id))?;
+
+        let pan = *self.viewer_pan.lock().map_err(|e| e.to_string())?;
+        let zoom = *self.viewer_zoom.lock().map_err(|e| e.to_string())?;
+
+        let instance = ViewerInstance::new(aspect_ratio, zoom, pan, texture_index);
+
+        let mut renderer = self.renderer.lock().map_err(|e| e.to_string())?;
+        if let Some(r) = renderer.as_mut() {
+            r.render_viewer(instance)?;
+            Ok(())
+        } else {
+            Err("Renderer not initialized".to_string())
+        }
     }
 }
