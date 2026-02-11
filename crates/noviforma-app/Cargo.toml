@@ -4,11 +4,7 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-noviforma-renderer = { path = "../noviforma-renderer" }
 noviforma-core = { path = "../noviforma-core" }
-wgpu = { workspace = true }
-winit = { workspace = true }
 tokio = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
-pollster = "0.3"

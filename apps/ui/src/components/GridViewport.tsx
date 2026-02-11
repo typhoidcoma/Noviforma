@@ -1,16 +1,7 @@
-import { Component, createSignal, onMount, onCleanup, createEffect } from 'solid-js';
+import { Component, createSignal, onMount, onCleanup, createEffect, For } from 'solid-js';
 import { calculateVisibleTiles, calculateContentHeight } from '../lib/viewport';
-import {
-  rendererInit,
-  rendererResize,
-  rendererUpdateTiles,
-  rendererLoadTexturesBatch,
-  rendererEnterViewer,
-  rendererExitViewer,
-  rendererRenderViewer,
-  rendererUpdateViewerPan,
-  rendererUpdateViewerZoom,
-} from '../lib/tauri';
+import { WebGPURenderer, type TileInstance } from '../lib/webgpu-renderer';
+import { getThumbnailUrl } from '../lib/asset-urls';
 import type { Asset } from '../lib/database';
 import './GridViewport.css';
 
@@ -27,6 +18,8 @@ interface GridViewportProps {
 const GridViewport: Component<GridViewportProps> = (props) => {
   let containerRef: HTMLDivElement | undefined;
   let scrollerRef: HTMLDivElement | undefined;
+  let canvasRef: HTMLCanvasElement | undefined;
+  let renderer: WebGPURenderer | null = null;
 
   const [viewportWidth, setViewportWidth] = createSignal(0);
   const [viewportHeight, setViewportHeight] = createSignal(0);
@@ -34,23 +27,28 @@ const GridViewport: Component<GridViewportProps> = (props) => {
   const [scrollLeft, setScrollLeft] = createSignal(0);
   const [dpr, setDpr] = createSignal(window.devicePixelRatio || 1);
   const [visibleTileCount, setVisibleTileCount] = createSignal(0);
-  const [lastUpdateTime, setLastUpdateTime] = createSignal(0);
   const [texturesLoaded, setTexturesLoaded] = createSignal(0);
   const [loadingTextures, setLoadingTextures] = createSignal(false);
+  const [rendererReady, setRendererReady] = createSignal(false);
+  const [visibleTiles, setVisibleTiles] = createSignal<Array<{id: number, x: number, y: number, w: number, h: number}>>([]);
 
   // View mode state
   const [viewMode, setViewMode] = createSignal<ViewMode>('grid');
   const [viewerAssetId, setViewerAssetId] = createSignal<number | null>(null);
-  const [viewerIndex, setViewerIndex] = createSignal(0); // Current position in assets array
+  const [viewerIndex, setViewerIndex] = createSignal(0);
   const [viewerZoom, setViewerZoom] = createSignal(1.0);
+  const [viewerPanX, setViewerPanX] = createSignal(0);
+  const [viewerPanY, setViewerPanY] = createSignal(0);
   const [isDragging, setIsDragging] = createSignal(false);
   const [dragStart, setDragStart] = createSignal({ x: 0, y: 0 });
-  const [rendererReady, setRendererReady] = createSignal(false);
 
   const gutter = 8; // Gap between tiles
   let rafId: number | null = null;
   let pendingUpdate = false;
   let loadingInProgress = false;
+
+  // Map asset ID to texture index
+  const assetTextureMap = new Map<number, number>();
 
   // Calculate content height for scrolling
   const contentHeight = () => calculateContentHeight(
@@ -60,53 +58,99 @@ const GridViewport: Component<GridViewportProps> = (props) => {
     viewportWidth()
   );
 
-  // Update visible tiles and send to Rust (batched via RAF)
+  // Update visible tiles and render (batched via RAF)
   const scheduleUpdate = () => {
-    if (pendingUpdate) return;
+    if (pendingUpdate || !renderer || !rendererReady()) return;
     pendingUpdate = true;
 
-    rafId = requestAnimationFrame(async () => {
+    rafId = requestAnimationFrame(() => {
       pendingUpdate = false;
 
-      const tiles = calculateVisibleTiles({
-        totalItems: props.totalItems,
-        tileSize: props.tileSize,
-        gutter,
-        viewportWidth: viewportWidth(),
-        viewportHeight: viewportHeight(),
-        scrollTop: scrollTop(),
-        scrollLeft: scrollLeft(),
-      });
-
-      setVisibleTileCount(tiles.length);
-      setLastUpdateTime(performance.now());
-
-      // Send to Rust via IPC with asset IDs
-      try {
-        await rendererUpdateTiles({
-          tiles: tiles.map(t => {
-            // Map grid position to asset
-            const asset = props.assets[t.id];
-            const asset_id = asset ? asset.id : 0; // Use 0 for missing assets
-
-            return {
-              id: t.id,
-              asset_id,
-              x: t.x,
-              y: t.y,
-              w: t.w,
-              h: t.h,
-            };
-          }),
-          viewport_w: viewportWidth(),
-          viewport_h: viewportHeight(),
-          dpr: dpr(),
-          selected_ids: props.selectedAssets,
+      if (viewMode() === 'grid') {
+        const tiles = calculateVisibleTiles({
+          totalItems: props.totalItems,
+          tileSize: props.tileSize,
+          gutter,
+          viewportWidth: viewportWidth(),
+          viewportHeight: viewportHeight(),
+          scrollTop: scrollTop(),
+          scrollLeft: scrollLeft(),
         });
-      } catch (error) {
-        console.error('Failed to update tiles:', error);
+
+        setVisibleTileCount(tiles.length);
+        setVisibleTiles(tiles); // Store for label overlay
+
+        // Convert to TileInstance with texture indices
+        const tileInstances: TileInstance[] = tiles.map(t => {
+          const asset = props.assets[t.id];
+          let textureIndex = -1;
+          let r = 0.2, g = 0.2, b = 0.2, a = 1.0; // Default gray
+
+          if (asset && asset.id) {
+            textureIndex = assetTextureMap.get(asset.id) ?? -1;
+
+            // If texture loaded, use white tint; otherwise use fallback color
+            if (textureIndex >= 0) {
+              r = 1.0; g = 1.0; b = 1.0;
+            } else {
+              // Fallback: Color based on asset ID
+              const hue = ((asset.id * 137.5) % 360) / 360;
+              const rgb = hslToRgb(hue, 0.5, 0.3);
+              r = rgb[0]; g = rgb[1]; b = rgb[2];
+            }
+          }
+
+          // Brighten selected tiles
+          const isSelected = props.selectedAssets.includes(t.id);
+          if (isSelected) {
+            r *= 1.5; g *= 1.5; b *= 1.5;
+          }
+
+          return {
+            x: t.x,
+            y: t.y,
+            w: t.w,
+            h: t.h,
+            textureIndex,
+            r,
+            g,
+            b,
+            a,
+          };
+        });
+
+        renderer!.updateTiles(tileInstances);
       }
+
+      // Render frame
+      renderer!.render();
     });
+  };
+
+  // HSL to RGB conversion for fallback colors
+  const hslToRgb = (h: number, s: number, l: number): [number, number, number] => {
+    let r, g, b;
+
+    if (s === 0) {
+      r = g = b = l;
+    } else {
+      const hue2rgb = (p: number, q: number, t: number) => {
+        if (t < 0) t += 1;
+        if (t > 1) t -= 1;
+        if (t < 1/6) return p + (q - p) * 6 * t;
+        if (t < 1/2) return q;
+        if (t < 2/3) return p + (q - p) * (2/3 - t) * 6;
+        return p;
+      };
+
+      const q = l < 0.5 ? l * (1 + s) : l + s - l * s;
+      const p = 2 * l - q;
+      r = hue2rgb(p, q, h + 1/3);
+      g = hue2rgb(p, q, h);
+      b = hue2rgb(p, q, h - 1/3);
+    }
+
+    return [r, g, b];
   };
 
   // Handle scroll events
@@ -118,8 +162,8 @@ const GridViewport: Component<GridViewportProps> = (props) => {
   };
 
   // Handle resize events
-  const handleResize = async () => {
-    if (!containerRef) return;
+  const handleResize = () => {
+    if (!containerRef || !renderer) return;
 
     const rect = containerRef.getBoundingClientRect();
     const newWidth = rect.width;
@@ -130,13 +174,7 @@ const GridViewport: Component<GridViewportProps> = (props) => {
     setViewportHeight(newHeight);
     setDpr(newDpr);
 
-    // Notify Rust of resize
-    try {
-      await rendererResize(newWidth, newHeight, newDpr);
-    } catch (error) {
-      console.error('Failed to resize renderer:', error);
-    }
-
+    renderer.resize(newWidth, newHeight, newDpr);
     scheduleUpdate();
   };
 
@@ -167,6 +205,8 @@ const GridViewport: Component<GridViewportProps> = (props) => {
 
   // Handle tile clicks for selection
   const handleClick = (e: MouseEvent) => {
+    if (viewMode() !== 'grid') return;
+
     const tileId = screenToTileId(e.clientX, e.clientY);
     if (tileId === null) return;
 
@@ -186,7 +226,6 @@ const GridViewport: Component<GridViewportProps> = (props) => {
       const end = Math.max(lastSelected, tileId);
       const range = Array.from({ length: end - start + 1 }, (_, i) => start + i);
 
-      // Merge with existing selection (union)
       const selectionSet = new Set([...props.selectedAssets, ...range]);
       newSelection = Array.from(selectionSet).sort((a, b) => a - b);
     } else {
@@ -197,136 +236,124 @@ const GridViewport: Component<GridViewportProps> = (props) => {
     props.onSelectionChange(newSelection);
   };
 
-  // Enter viewer mode with the first selected asset
-  const enterViewerMode = async () => {
-    if (props.selectedAssets.length === 0) return;
+  // Enter viewer mode
+  const enterViewerMode = () => {
+    if (props.selectedAssets.length === 0 || !renderer) return;
 
-    const assetId = props.selectedAssets[0];
-    const asset = props.assets.find(a => a.id === assetId);
+    const tileId = props.selectedAssets[0];
+    const asset = props.assets[tileId];
     if (!asset) return;
 
-    // Find the index of this asset in the full assets array
-    const index = props.assets.findIndex(a => a.id === assetId);
-    if (index === -1) return;
+    console.log('Entering viewer mode for asset:', asset.id, 'tile:', tileId);
 
-    console.log('Entering viewer mode for asset:', assetId, 'at index:', index);
+    setViewMode('viewer');
+    setViewerAssetId(asset.id);
+    setViewerIndex(tileId);
+    setViewerZoom(1.0);
+    setViewerPanX(0);
+    setViewerPanY(0);
 
-    try {
-      await rendererEnterViewer(assetId);
-      setViewMode('viewer');
-      setViewerAssetId(assetId);
-      setViewerIndex(index);
-      setViewerZoom(1.0);
-
-      // Set cursor style for viewer
-      if (containerRef) {
-        containerRef.style.cursor = 'grab';
-      }
-
-      // Render the viewer
-      const aspectRatio = asset.width && asset.height ? asset.width / asset.height : 1.0;
-      await rendererRenderViewer(assetId, aspectRatio);
-    } catch (error) {
-      console.error('Failed to enter viewer mode:', error);
+    if (containerRef) {
+      containerRef.style.cursor = 'grab';
     }
+
+    renderViewer();
   };
 
-  // Navigate to a specific asset by index in viewer mode
-  const navigateToAsset = async (index: number) => {
+  // Render viewer mode
+  const renderViewer = () => {
+    if (viewMode() !== 'viewer' || !renderer) return;
+
+    const asset = props.assets[viewerIndex()];
+    if (!asset) return;
+
+    const textureIndex = assetTextureMap.get(asset.id) ?? -1;
+    if (textureIndex < 0) {
+      console.warn('Texture not loaded for asset:', asset.id);
+      return;
+    }
+
+    const aspectRatio = asset.width && asset.height ? asset.width / asset.height : 1.0;
+
+    renderer.setViewerParams({
+      textureIndex,
+      aspectRatio,
+      scale: viewerZoom(),
+      offsetX: viewerPanX() * viewportWidth() * dpr(),
+      offsetY: viewerPanY() * viewportHeight() * dpr(),
+    });
+
+    renderer.render();
+  };
+
+  // Navigate to asset by index
+  const navigateToAsset = (index: number) => {
     if (viewMode() !== 'viewer') return;
     if (index < 0 || index >= props.assets.length) return;
 
     const asset = props.assets[index];
     if (!asset) return;
 
-    console.log('Navigating to asset:', asset.id, 'at index:', index);
+    console.log('Navigating to asset:', asset.id, 'index:', index);
 
-    try {
-      await rendererEnterViewer(asset.id);
-      setViewerAssetId(asset.id);
-      setViewerIndex(index);
-      setViewerZoom(1.0);
+    setViewerAssetId(asset.id);
+    setViewerIndex(index);
+    setViewerZoom(1.0);
+    setViewerPanX(0);
+    setViewerPanY(0);
 
-      // Update selection to reflect current image
-      props.onSelectionChange([index]);
+    props.onSelectionChange([index]);
 
-      // Render the new asset
-      const aspectRatio = asset.width && asset.height ? asset.width / asset.height : 1.0;
-      await rendererRenderViewer(asset.id, aspectRatio);
-    } catch (error) {
-      console.error('Failed to navigate to asset:', error);
-    }
+    renderViewer();
   };
 
-  // Navigate to previous asset
-  const navigatePrevious = async () => {
+  // Navigate to previous/next
+  const navigatePrevious = () => {
     const currentIndex = viewerIndex();
     if (currentIndex > 0) {
-      await navigateToAsset(currentIndex - 1);
+      navigateToAsset(currentIndex - 1);
     }
   };
 
-  // Navigate to next asset
-  const navigateNext = async () => {
+  const navigateNext = () => {
     const currentIndex = viewerIndex();
     if (currentIndex < props.assets.length - 1) {
-      await navigateToAsset(currentIndex + 1);
+      navigateToAsset(currentIndex + 1);
     }
   };
 
-  // Exit viewer mode and return to grid
-  const exitViewerMode = async () => {
+  // Exit viewer mode
+  const exitViewerMode = () => {
     console.log('Exiting viewer mode');
 
-    try {
-      await rendererExitViewer();
-      setViewMode('grid');
-      setViewerAssetId(null);
-      setViewerZoom(1.0);
+    setViewMode('grid');
+    setViewerAssetId(null);
+    setViewerZoom(1.0);
+    setViewerPanX(0);
+    setViewerPanY(0);
 
-      // Reset cursor style
-      if (containerRef) {
-        containerRef.style.cursor = 'default';
-      }
-
-      // Re-render grid
-      scheduleUpdate();
-    } catch (error) {
-      console.error('Failed to exit viewer mode:', error);
+    if (containerRef) {
+      containerRef.style.cursor = 'default';
     }
+
+    scheduleUpdate();
   };
 
-  // Handle zoom in viewer mode (mouse wheel)
-  const handleViewerWheel = async (e: WheelEvent) => {
+  // Handle zoom in viewer mode
+  const handleViewerWheel = (e: WheelEvent) => {
     if (viewMode() !== 'viewer') return;
 
     e.preventDefault();
 
-    // Calculate zoom delta (negative deltaY = zoom in)
     const zoomSpeed = 0.001;
     const delta = -e.deltaY * zoomSpeed;
+    const newZoom = (viewerZoom() * (1.0 + delta)).clamp(0.25, 4.0);
 
-    try {
-      await rendererUpdateViewerZoom(delta);
-
-      // Update local zoom state for display
-      const currentAssetId = viewerAssetId();
-      if (currentAssetId !== null) {
-        const asset = props.assets.find(a => a.id === currentAssetId);
-        if (asset) {
-          const newZoom = viewerZoom() * (1.0 + delta);
-          setViewerZoom(Math.min(Math.max(newZoom, 0.25), 4.0));
-
-          const aspectRatio = asset.width && asset.height ? asset.width / asset.height : 1.0;
-          await rendererRenderViewer(currentAssetId, aspectRatio);
-        }
-      }
-    } catch (error) {
-      console.error('Failed to update viewer zoom:', error);
-    }
+    setViewerZoom(newZoom);
+    renderViewer();
   };
 
-  // Handle pan start (mouse down)
+  // Handle pan start
   const handleViewerMouseDown = (e: MouseEvent) => {
     if (viewMode() !== 'viewer') return;
 
@@ -338,34 +365,23 @@ const GridViewport: Component<GridViewportProps> = (props) => {
     }
   };
 
-  // Handle pan move (mouse move)
-  const handleViewerMouseMove = async (e: MouseEvent) => {
+  // Handle pan move
+  const handleViewerMouseMove = (e: MouseEvent) => {
     if (viewMode() !== 'viewer' || !isDragging()) return;
 
     const start = dragStart();
     const deltaX = (e.clientX - start.x) / viewportWidth();
     const deltaY = (e.clientY - start.y) / viewportHeight();
 
-    // Update drag start for next frame
     setDragStart({ x: e.clientX, y: e.clientY });
 
-    try {
-      await rendererUpdateViewerPan(deltaX, deltaY);
+    setViewerPanX(viewerPanX() + deltaX);
+    setViewerPanY(viewerPanY() + deltaY);
 
-      const currentAssetId = viewerAssetId();
-      if (currentAssetId !== null) {
-        const asset = props.assets.find(a => a.id === currentAssetId);
-        if (asset) {
-          const aspectRatio = asset.width && asset.height ? asset.width / asset.height : 1.0;
-          await rendererRenderViewer(currentAssetId, aspectRatio);
-        }
-      }
-    } catch (error) {
-      console.error('Failed to update viewer pan:', error);
-    }
+    renderViewer();
   };
 
-  // Handle pan end (mouse up)
+  // Handle pan end
   const handleViewerMouseUp = () => {
     if (viewMode() !== 'viewer') return;
 
@@ -376,263 +392,214 @@ const GridViewport: Component<GridViewportProps> = (props) => {
     }
   };
 
-  // Handle double-click to toggle between fit and 2x zoom
-  const handleViewerDoubleClick = async () => {
+  // Handle double-click to toggle zoom
+  const handleViewerDoubleClick = () => {
     if (viewMode() !== 'viewer') return;
 
-    const currentAssetId = viewerAssetId();
-    if (currentAssetId === null) return;
+    const currentZoom = viewerZoom();
+    const targetZoom = Math.abs(currentZoom - 1.0) < 0.1 ? 2.0 : 1.0;
 
-    const asset = props.assets.find(a => a.id === currentAssetId);
-    if (!asset) return;
-
-    try {
-      const currentZoom = viewerZoom();
-      // If close to 1.0, zoom to 2.0; otherwise reset to 1.0
-      const targetZoom = Math.abs(currentZoom - 1.0) < 0.1 ? 2.0 : 1.0;
-
-      // Calculate delta to reach target zoom
-      const delta = (targetZoom - currentZoom) / currentZoom;
-      await rendererUpdateViewerZoom(delta);
-      setViewerZoom(targetZoom);
-
-      const aspectRatio = asset.width && asset.height ? asset.width / asset.height : 1.0;
-      await rendererRenderViewer(currentAssetId, aspectRatio);
-    } catch (error) {
-      console.error('Failed to toggle zoom:', error);
-    }
+    setViewerZoom(targetZoom);
+    renderViewer();
   };
 
   // Handle keyboard events
-  const handleKeyDown = async (e: KeyboardEvent) => {
+  const handleKeyDown = (e: KeyboardEvent) => {
     if (viewMode() === 'grid') {
-      // Grid mode: Enter to view selected image
       if (e.key === 'Enter' && props.selectedAssets.length > 0) {
         e.preventDefault();
-        await enterViewerMode();
-      }
-      // Esc to deselect
-      else if (e.key === 'Escape' && props.selectedAssets.length > 0) {
+        enterViewerMode();
+      } else if (e.key === 'Escape' && props.selectedAssets.length > 0) {
         e.preventDefault();
         props.onSelectionChange([]);
       }
     } else if (viewMode() === 'viewer') {
-      const currentAssetId = viewerAssetId();
-      const asset = currentAssetId !== null ? props.assets.find(a => a.id === currentAssetId) : null;
-      const aspectRatio = asset && asset.width && asset.height ? asset.width / asset.height : 1.0;
-
-      // Viewer mode: Esc to exit
       if (e.key === 'Escape') {
         e.preventDefault();
-        await exitViewerMode();
-      }
-      // Zoom in with + or =
-      else if (e.key === '+' || e.key === '=') {
+        exitViewerMode();
+      } else if (e.key === '+' || e.key === '=') {
         e.preventDefault();
-        try {
-          await rendererUpdateViewerZoom(0.1); // 10% zoom in
-          const newZoom = viewerZoom() * 1.1;
-          setViewerZoom(Math.min(Math.max(newZoom, 0.25), 4.0));
-          if (currentAssetId !== null) {
-            await rendererRenderViewer(currentAssetId, aspectRatio);
-          }
-        } catch (error) {
-          console.error('Failed to zoom in:', error);
-        }
-      }
-      // Zoom out with -
-      else if (e.key === '-') {
+        const newZoom = (viewerZoom() * 1.1).clamp(0.25, 4.0);
+        setViewerZoom(newZoom);
+        renderViewer();
+      } else if (e.key === '-') {
         e.preventDefault();
-        try {
-          await rendererUpdateViewerZoom(-0.1); // 10% zoom out
-          const newZoom = viewerZoom() / 1.1;
-          setViewerZoom(Math.min(Math.max(newZoom, 0.25), 4.0));
-          if (currentAssetId !== null) {
-            await rendererRenderViewer(currentAssetId, aspectRatio);
-          }
-        } catch (error) {
-          console.error('Failed to zoom out:', error);
-        }
-      }
-      // Reset zoom with 0
-      else if (e.key === '0') {
+        const newZoom = (viewerZoom() / 1.1).clamp(0.25, 4.0);
+        setViewerZoom(newZoom);
+        renderViewer();
+      } else if (e.key === '0') {
         e.preventDefault();
-        try {
-          const currentZoom = viewerZoom();
-          const delta = (1.0 - currentZoom) / currentZoom;
-          await rendererUpdateViewerZoom(delta);
-          setViewerZoom(1.0);
-          if (currentAssetId !== null) {
-            await rendererRenderViewer(currentAssetId, aspectRatio);
-          }
-        } catch (error) {
-          console.error('Failed to reset zoom:', error);
-        }
-      }
-      // Navigate with Left/Right arrows (or Space for next)
-      else if (e.key === 'ArrowLeft') {
+        setViewerZoom(1.0);
+        setViewerPanX(0);
+        setViewerPanY(0);
+        renderViewer();
+      } else if (e.key === 'ArrowLeft') {
         e.preventDefault();
-        await navigatePrevious();
-      }
-      else if (e.key === 'ArrowRight' || e.key === ' ') {
+        navigatePrevious();
+      } else if (e.key === 'ArrowRight' || e.key === ' ') {
         e.preventDefault();
-        await navigateNext();
-      }
-      // Jump to first image with Home
-      else if (e.key === 'Home') {
+        navigateNext();
+      } else if (e.key === 'Home') {
         e.preventDefault();
-        await navigateToAsset(0);
-      }
-      // Jump to last image with End
-      else if (e.key === 'End') {
+        navigateToAsset(0);
+      } else if (e.key === 'End') {
         e.preventDefault();
-        await navigateToAsset(props.totalItems - 1);
-      }
-      // Page navigation (jump 10 images at a time)
-      else if (e.key === 'PageUp') {
+        navigateToAsset(props.totalItems - 1);
+      } else if (e.key === 'PageUp') {
         e.preventDefault();
-        const newIndex = Math.max(0, viewerIndex() - 10);
-        await navigateToAsset(newIndex);
-      }
-      else if (e.key === 'PageDown') {
+        navigateToAsset(Math.max(0, viewerIndex() - 10));
+      } else if (e.key === 'PageDown') {
         e.preventDefault();
-        const newIndex = Math.min(props.totalItems - 1, viewerIndex() + 10);
-        await navigateToAsset(newIndex);
-      }
-      // Pan with Up/Down arrow keys
-      else if (e.key === 'ArrowUp' || e.key === 'ArrowDown') {
+        navigateToAsset(Math.min(props.totalItems - 1, viewerIndex() + 10));
+      } else if (e.key === 'ArrowUp') {
         e.preventDefault();
-        const panAmount = 0.1; // 10% of viewport
-        const deltaY = e.key === 'ArrowUp' ? panAmount : -panAmount;
-
-        try {
-          await rendererUpdateViewerPan(0, deltaY);
-          if (currentAssetId !== null) {
-            await rendererRenderViewer(currentAssetId, aspectRatio);
-          }
-        } catch (error) {
-          console.error('Failed to pan:', error);
-        }
+        setViewerPanY(viewerPanY() + 0.1);
+        renderViewer();
+      } else if (e.key === 'ArrowDown') {
+        e.preventDefault();
+        setViewerPanY(viewerPanY() - 0.1);
+        renderViewer();
       }
     }
   };
 
-  // Initialize
+  // Initialize WebGPU renderer
   onMount(async () => {
-    // Renderer is initialized by Tauri on startup (in setup hook)
-    // No need to call rendererInit() here
-    setRendererReady(true);
+    if (!canvasRef) {
+      console.error('Canvas ref not available');
+      return;
+    }
 
-    // Setup resize observer
-    if (containerRef) {
-      const resizeObserver = new ResizeObserver(handleResize);
-      resizeObserver.observe(containerRef);
+    try {
+      console.log('Initializing WebGPU renderer...');
+      renderer = new WebGPURenderer();
+      await renderer.init(canvasRef);
+      setRendererReady(true);
+      console.log('WebGPU renderer initialized');
 
-      // Initial resize
-      handleResize();
+      // Setup resize observer
+      if (containerRef) {
+        const resizeObserver = new ResizeObserver(handleResize);
+        resizeObserver.observe(containerRef);
+
+        // Initial resize
+        handleResize();
+
+        onCleanup(() => {
+          resizeObserver.disconnect();
+          if (rafId) cancelAnimationFrame(rafId);
+        });
+      }
+
+      // Listen for DPR changes
+      const mediaQuery = window.matchMedia(`(resolution: ${dpr()}dppx)`);
+      const handleDprChange = () => handleResize();
+      mediaQuery.addEventListener('change', handleDprChange);
+
+      // Listen for keyboard events
+      window.addEventListener('keydown', handleKeyDown);
+
+      // Listen for viewer interactions
+      if (containerRef) {
+        containerRef.addEventListener('wheel', handleViewerWheel, { passive: false });
+        containerRef.addEventListener('mousedown', handleViewerMouseDown);
+        containerRef.addEventListener('mousemove', handleViewerMouseMove);
+        containerRef.addEventListener('mouseup', handleViewerMouseUp);
+        containerRef.addEventListener('mouseleave', handleViewerMouseUp);
+        containerRef.addEventListener('dblclick', handleViewerDoubleClick);
+      }
 
       onCleanup(() => {
-        resizeObserver.disconnect();
-        if (rafId) cancelAnimationFrame(rafId);
+        mediaQuery.removeEventListener('change', handleDprChange);
+        window.removeEventListener('keydown', handleKeyDown);
+
+        if (containerRef) {
+          containerRef.removeEventListener('wheel', handleViewerWheel);
+          containerRef.removeEventListener('mousedown', handleViewerMouseDown);
+          containerRef.removeEventListener('mousemove', handleViewerMouseMove);
+          containerRef.removeEventListener('mouseup', handleViewerMouseUp);
+          containerRef.removeEventListener('mouseleave', handleViewerMouseUp);
+          containerRef.removeEventListener('dblclick', handleViewerDoubleClick);
+        }
       });
+    } catch (error) {
+      console.error('Failed to initialize WebGPU:', error);
+      alert(`WebGPU initialization failed: ${error}\n\nMake sure your browser supports WebGPU.`);
     }
-
-    // Listen for DPR changes
-    const mediaQuery = window.matchMedia(`(resolution: ${dpr()}dppx)`);
-    const handleDprChange = () => handleResize();
-    mediaQuery.addEventListener('change', handleDprChange);
-
-    // Listen for keyboard events
-    window.addEventListener('keydown', handleKeyDown);
-
-    // Listen for viewer interactions
-    if (containerRef) {
-      containerRef.addEventListener('wheel', handleViewerWheel, { passive: false });
-      containerRef.addEventListener('mousedown', handleViewerMouseDown);
-      containerRef.addEventListener('mousemove', handleViewerMouseMove);
-      containerRef.addEventListener('mouseup', handleViewerMouseUp);
-      containerRef.addEventListener('mouseleave', handleViewerMouseUp);
-      containerRef.addEventListener('dblclick', handleViewerDoubleClick);
-    }
-
-    onCleanup(() => {
-      mediaQuery.removeEventListener('change', handleDprChange);
-      window.removeEventListener('keydown', handleKeyDown);
-
-      if (containerRef) {
-        containerRef.removeEventListener('wheel', handleViewerWheel);
-        containerRef.removeEventListener('mousedown', handleViewerMouseDown);
-        containerRef.removeEventListener('mousemove', handleViewerMouseMove);
-        containerRef.removeEventListener('mouseup', handleViewerMouseUp);
-        containerRef.removeEventListener('mouseleave', handleViewerMouseUp);
-        containerRef.removeEventListener('dblclick', handleViewerDoubleClick);
-      }
-    });
   });
 
   // React to prop changes
   createEffect(() => {
-    // When totalItems or tileSize changes, recalculate
     const _ = props.totalItems + props.tileSize;
     scheduleUpdate();
   });
 
   // React to selection changes
   createEffect(() => {
-    // When selection changes, update renderer
     const _ = props.selectedAssets.length;
     scheduleUpdate();
   });
 
-  // Load textures in background when assets change
+  // Load textures when assets change
   createEffect(() => {
     const assetList = props.assets;
 
-    // Don't start if no assets or already loading
-    if (assetList.length === 0 || loadingInProgress) return;
+    if (assetList.length === 0 || loadingInProgress || !renderer || !rendererReady()) return;
 
-    // Small delay to ensure renderer is initialized
     setTimeout(() => {
       if (loadingInProgress) return;
 
-    // Start background texture loading
-    loadingInProgress = true;
-    setLoadingTextures(true);
+      loadingInProgress = true;
+      setLoadingTextures(true);
 
-    (async () => {
-      try {
-        const BATCH_SIZE = 50; // Load 50 textures at a time
-        const assetIds = assetList.map(a => a.id);
-        let totalLoaded = 0;
+      (async () => {
+        try {
+          console.log(`Loading ${assetList.length} textures...`);
+          let totalLoaded = 0;
 
-        for (let i = 0; i < assetIds.length; i += BATCH_SIZE) {
-          const batch = assetIds.slice(i, i + BATCH_SIZE);
+          for (const asset of assetList) {
+            if (!asset.thumbnail_path) continue;
 
-          try {
-            const loaded = await rendererLoadTexturesBatch(batch);
-            totalLoaded += loaded;
-            setTexturesLoaded(totalLoaded);
+            try {
+              const thumbnailUrl = getThumbnailUrl(asset.thumbnail_path);
+              const textureIndex = await renderer!.loadTexture(thumbnailUrl);
 
-            // Trigger a re-render to show newly loaded textures
-            scheduleUpdate();
+              if (textureIndex >= 0) {
+                assetTextureMap.set(asset.id, textureIndex);
+                totalLoaded++;
+                setTexturesLoaded(totalLoaded);
 
-            // Small delay between batches to keep UI responsive
-            await new Promise(resolve => setTimeout(resolve, 10));
-          } catch (error) {
-            console.error('Failed to load texture batch:', error);
+                // Trigger re-render every 10 textures
+                if (totalLoaded % 10 === 0) {
+                  scheduleUpdate();
+                }
+              }
+            } catch (error) {
+              console.error(`Failed to load texture for asset ${asset.id}:`, error);
+            }
+
+            // Small delay to keep UI responsive
+            if (totalLoaded % 50 === 0) {
+              await new Promise(resolve => setTimeout(resolve, 10));
+            }
           }
-        }
 
-        console.log(`Background texture loading complete: ${totalLoaded} textures loaded`);
-      } catch (error) {
-        console.error('Background texture loading failed:', error);
-      } finally {
-        setLoadingTextures(false);
-        loadingInProgress = false;
-      }
-    })();
-    }, 100); // 100ms delay to let renderer initialize
+          console.log(`Texture loading complete: ${totalLoaded} loaded`);
+          scheduleUpdate();
+        } catch (error) {
+          console.error('Texture loading failed:', error);
+        } finally {
+          setLoadingTextures(false);
+          loadingInProgress = false;
+        }
+      })();
+    }, 100);
   });
+
+  // Clamp helper for numbers
+  Number.prototype.clamp = function(min: number, max: number): number {
+    return Math.min(Math.max(this.valueOf(), min), max);
+  };
 
   return (
     <div class="grid-viewport" ref={containerRef}>
@@ -656,7 +623,36 @@ const GridViewport: Component<GridViewportProps> = (props) => {
 
           <div class="grid-scroller" ref={scrollerRef} onScroll={handleScroll}>
             <div class="grid-content" style={{ height: `${contentHeight()}px` }} onClick={handleClick}>
-              <canvas id="gpu-grid-canvas" />
+              <canvas id="gpu-grid-canvas" ref={canvasRef} />
+
+              {/* Filename labels overlay */}
+              <div class="tile-labels-overlay">
+                <For each={visibleTiles()}>
+                  {(tile) => {
+                    const asset = props.assets[tile.id];
+                    if (!asset) return null;
+
+                    // Position label below the tile
+                    const labelTop = tile.y + tile.h + 2;
+                    const labelLeft = tile.x;
+                    const labelWidth = tile.w;
+
+                    return (
+                      <div
+                        class="tile-label"
+                        style={{
+                          top: `${labelTop}px`,
+                          left: `${labelLeft}px`,
+                          width: `${labelWidth}px`,
+                        }}
+                        title={asset.filename}
+                      >
+                        {asset.filename}
+                      </div>
+                    );
+                  }}
+                </For>
+              </div>
             </div>
           </div>
         </>
@@ -665,15 +661,13 @@ const GridViewport: Component<GridViewportProps> = (props) => {
           <div class="grid-viewport-info" style="background: #1a1a1a;">
             <span style="color: #4a90e2;">
               {(() => {
-                const assetId = viewerAssetId();
-                const asset = assetId !== null ? props.assets.find(a => a.id === assetId) : null;
+                const asset = props.assets[viewerIndex()];
                 return asset?.filename || 'Unknown';
               })()}
             </span>
             <span>
               {(() => {
-                const assetId = viewerAssetId();
-                const asset = assetId !== null ? props.assets.find(a => a.id === assetId) : null;
+                const asset = props.assets[viewerIndex()];
                 if (asset?.width && asset?.height) {
                   return `${asset.width} × ${asset.height}`;
                 }
@@ -690,12 +684,19 @@ const GridViewport: Component<GridViewportProps> = (props) => {
           </div>
 
           <div class="viewer-container">
-            <canvas id="gpu-grid-canvas" />
+            <canvas id="gpu-grid-canvas" ref={canvasRef} />
           </div>
         </>
       )}
     </div>
   );
 };
+
+// TypeScript extension for Number.prototype.clamp
+declare global {
+  interface Number {
+    clamp(min: number, max: number): number;
+  }
+}
 
 export default GridViewport;

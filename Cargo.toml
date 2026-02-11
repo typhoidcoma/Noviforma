@@ -1,7 +1,6 @@
 [workspace]
 members = [
     "src-tauri",
-    "crates/noviforma-renderer",
     "crates/noviforma-app",
     "crates/noviforma-core",
 ]
