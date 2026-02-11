@@ -1,17 +1,18 @@
-import { Component, createSignal, onMount, onCleanup } from 'solid-js';
+import { Component, createSignal, createEffect, on, onMount, onCleanup, Show } from 'solid-js';
 import GridViewport from './components/GridViewport';
 import ProjectBrowser from './components/ProjectBrowser';
 import Inspector from './components/Inspector';
 import {
   dbInit,
-  dbGetAllAssets,
-  dbCountAssets,
   dbGetAllFolders,
   dbGetCurrentFolder,
   dbSetCurrentFolder,
-  dbGetAssetsByFolder,
+  dbSearchAssets,
+  dbGetAllShots,
   type Asset,
-  type Folder
+  type AssetFilter,
+  type Folder,
+  type Shot,
 } from './lib/database';
 import './App.css';
 
@@ -58,98 +59,130 @@ const App: Component = () => {
     document.removeEventListener('mousemove', onResizeMove);
     document.removeEventListener('mouseup', onResizeEnd);
   });
+
+  // Core state
   const [assets, setAssets] = createSignal<Asset[]>([]);
   const [folders, setFolders] = createSignal<Folder[]>([]);
+  const [shots, setShots] = createSignal<Shot[]>([]);
   const [currentFolderId, setCurrentFolderId] = createSignal<number | null>(null);
   const [dbInitialized, setDbInitialized] = createSignal(false);
   const [dbPath, setDbPath] = createSignal('');
 
-  // Computed: total items always equals actual asset count
+  // Filter state
+  const [searchQuery, setSearchQuery] = createSignal('');
+  const [filterTagIds, setFilterTagIds] = createSignal<number[]>([]);
+  const [filterMinRating, setFilterMinRating] = createSignal(0);
+  const [filterShotId, setFilterShotId] = createSignal<number | null>(null);
+
+  // Computed
   const totalItems = () => assets().length;
+
+  const hasActiveFilters = () =>
+    searchQuery() !== '' ||
+    filterTagIds().length > 0 ||
+    filterMinRating() > 0 ||
+    filterShotId() !== null;
+
+  // Unified asset loading with filters
+  const loadFilteredAssets = async () => {
+    if (!dbInitialized()) return;
+    try {
+      const filter: AssetFilter = {
+        folderId: currentFolderId() ?? undefined,
+        searchQuery: searchQuery() || undefined,
+        tagIds: filterTagIds().length > 0 ? filterTagIds() : undefined,
+        minRating: filterMinRating() > 0 ? filterMinRating() : undefined,
+        shotId: filterShotId() ?? undefined,
+      };
+      const results = await dbSearchAssets(filter);
+      setAssets(results);
+    } catch (error) {
+      console.error('Failed to load filtered assets:', error);
+    }
+  };
 
   // Initialize database on mount
   onMount(async () => {
     try {
-      // Use local directory for database and thumbnails (no permissions needed)
       const defaultDbPath = 'noviforma-data/noviforma.db';
       setDbPath(defaultDbPath);
 
       console.log('Initializing database at:', defaultDbPath);
-      console.log('Thumbnails will be stored in: noviforma-data/thumbnails/');
-
       const result = await dbInit(defaultDbPath);
       console.log('Database init result:', result);
 
       setDbInitialized(true);
 
-      // Load folders
-      await loadFolders();
+      // Load folders and shots
+      await Promise.all([loadFolders(), loadShots()]);
 
       // Load current folder if set
       const current = await dbGetCurrentFolder();
       if (current) {
         setCurrentFolderId(current);
-        await loadAssetsForFolder(current);
       }
+
+      // Initial asset load
+      await loadFilteredAssets();
     } catch (error) {
       console.error('Failed to initialize database:', error);
       alert(`Database initialization failed: ${error}\n\nCheck the console for details.`);
-      // Still set initialized to true so UI is usable
       setDbInitialized(true);
     }
   });
 
-  // Load assets from database (all assets)
-  const loadAssets = async () => {
-    try {
-      const allAssets = await dbGetAllAssets();
-      setAssets(allAssets);
-      console.log(`Loaded ${allAssets.length} assets from database`);
-    } catch (error) {
-      console.error('Failed to load assets:', error);
-    }
-  };
+  // Debounced reactive effect for filter changes
+  let searchTimeout: number | null = null;
+  createEffect(on(
+    () => [searchQuery(), filterTagIds(), filterMinRating(), filterShotId(), currentFolderId()],
+    () => {
+      if (searchTimeout) clearTimeout(searchTimeout);
+      searchTimeout = window.setTimeout(() => {
+        if (dbInitialized()) {
+          loadFilteredAssets();
+        }
+      }, 150);
+    },
+    { defer: true }
+  ));
 
-  // Load folders from database
   const loadFolders = async () => {
     try {
       const allFolders = await dbGetAllFolders();
       setFolders(allFolders);
-      console.log(`Loaded ${allFolders.length} folders from database`);
     } catch (error) {
       console.error('Failed to load folders:', error);
     }
   };
 
-  // Load assets for a specific folder
-  const loadAssetsForFolder = async (folderId: number) => {
+  const loadShots = async () => {
     try {
-      const folderAssets = await dbGetAssetsByFolder(folderId);
-      setAssets(folderAssets);
-      console.log(`Loaded ${folderAssets.length} assets from folder ${folderId}`);
+      const allShots = await dbGetAllShots();
+      setShots(allShots);
     } catch (error) {
-      console.error('Failed to load assets for folder:', error);
+      console.error('Failed to load shots:', error);
     }
   };
 
-  // Handle folder selection change
   const handleFolderChange = async (folderId: number) => {
     await dbSetCurrentFolder(folderId);
     setCurrentFolderId(folderId);
-    await loadAssetsForFolder(folderId);
   };
 
-  // Refresh assets after scanning
   const handleAssetsUpdated = async () => {
-    await loadFolders(); // Refresh folder list
-
+    await Promise.all([loadFolders(), loadShots()]);
     const current = await dbGetCurrentFolder();
     if (current) {
       setCurrentFolderId(current);
-      await loadAssetsForFolder(current);
-    } else {
-      await loadAssets(); // Fallback to all assets
     }
+    await loadFilteredAssets();
+  };
+
+  const clearAllFilters = () => {
+    setSearchQuery('');
+    setFilterTagIds([]);
+    setFilterMinRating(0);
+    setFilterShotId(null);
   };
 
   return (
@@ -163,6 +196,10 @@ const App: Component = () => {
           currentFolderId={currentFolderId()}
           onFolderSelect={handleFolderChange}
           onAssetsUpdated={handleAssetsUpdated}
+          onTagFilterChange={setFilterTagIds}
+          onShotFilterChange={setFilterShotId}
+          activeTagFilters={filterTagIds()}
+          activeShotFilter={filterShotId()}
         />
       </aside>
 
@@ -178,7 +215,29 @@ const App: Component = () => {
               type="search"
               placeholder="Search assets..."
               class="search-input"
+              value={searchQuery()}
+              onInput={(e) => setSearchQuery(e.currentTarget.value)}
             />
+            <div class="rating-filter">
+              {[1, 2, 3, 4, 5].map((star) => (
+                <button
+                  class={`star-filter ${star <= filterMinRating() ? 'active' : ''}`}
+                  onClick={() => setFilterMinRating(star === filterMinRating() ? 0 : star)}
+                  title={`Filter: ${star}+ stars`}
+                >
+                  {star <= filterMinRating() ? '\u2605' : '\u2606'}
+                </button>
+              ))}
+            </div>
+            <Show when={hasActiveFilters()}>
+              <button
+                class="btn-clear-filters"
+                onClick={clearAllFilters}
+                title="Clear all filters"
+              >
+                Clear
+              </button>
+            </Show>
           </div>
         </div>
         <div class="viewport-canvas-container">
@@ -205,6 +264,9 @@ const App: Component = () => {
         <Inspector
           selectedAssets={selectedAssets().map(id => assets()[id]).filter(Boolean)}
           totalAssets={totalItems()}
+          onTagsChanged={() => loadFilteredAssets()}
+          onShotAssigned={() => { loadFilteredAssets(); loadShots(); }}
+          allShots={shots()}
         />
       </aside>
     </div>

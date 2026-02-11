@@ -1,5 +1,10 @@
 import { Component, createSignal, createEffect, For, onCleanup, Show } from 'solid-js';
-import { dbScanDirectory, dbGenerateThumbnails, dbDeleteFolder, dbGetThumbnailProgress, type Folder } from '../lib/database';
+import {
+  dbScanDirectory, dbGenerateThumbnails, dbDeleteFolder, dbGetThumbnailProgress,
+  dbGetAllTagsWithCounts, dbCreateTag, dbDeleteTag,
+  dbGetAllShots, dbCreateShot, dbDeleteShot,
+  type Folder, type TagWithCount, type Shot,
+} from '../lib/database';
 import { Modal } from './Modal';
 import './ProjectBrowser.css';
 
@@ -9,6 +14,10 @@ interface ProjectBrowserProps {
   currentFolderId: number | null;
   onFolderSelect: (folderId: number) => void;
   onAssetsUpdated: () => void;
+  onTagFilterChange: (tagIds: number[]) => void;
+  onShotFilterChange: (shotId: number | null) => void;
+  activeTagFilters: number[];
+  activeShotFilter: number | null;
 }
 
 const ProjectBrowser: Component<ProjectBrowserProps> = (props) => {
@@ -20,9 +29,20 @@ const ProjectBrowser: Component<ProjectBrowserProps> = (props) => {
   const [scanComplete, setScanComplete] = createSignal<string | null>(null);
   const [statusText, setStatusText] = createSignal('');
 
+  // Tag state
+  const [tags, setTags] = createSignal<TagWithCount[]>([]);
+  const [showCreateTag, setShowCreateTag] = createSignal(false);
+  const [newTagName, setNewTagName] = createSignal('');
+  const [newTagColor, setNewTagColor] = createSignal('#5AB6C6');
+
+  // Shot state
+  const [shots, setShots] = createSignal<Shot[]>([]);
+  const [showCreateShot, setShowCreateShot] = createSignal(false);
+  const [newShotName, setNewShotName] = createSignal('');
+  const [newShotSequence, setNewShotSequence] = createSignal('');
+
   let pollInterval: number | null = null;
 
-  // Start polling progress from backend
   const startPolling = () => {
     stopPolling();
     pollInterval = window.setInterval(async () => {
@@ -47,7 +67,6 @@ const ProjectBrowser: Component<ProjectBrowserProps> = (props) => {
     stopPolling();
   });
 
-  // Auto-dismiss modal when scan completes
   createEffect(() => {
     const complete = scanComplete();
     if (complete) {
@@ -58,30 +77,112 @@ const ProjectBrowser: Component<ProjectBrowserProps> = (props) => {
     }
   });
 
-  // Compute percentage
   const percentage = () => {
     const total = progressTotal();
     if (total === 0) return 0;
     return Math.round((progressCurrent() / total) * 100);
   };
 
-  const mockTags = [
-    { name: 'Approved', count: 45, color: '#6c6' },
-    { name: 'Review', count: 23, color: '#fc6' },
-    { name: 'Rejected', count: 12, color: '#E05839' },
-    { name: 'Hero', count: 8, color: '#5AB6C6' },
-    { name: 'WIP', count: 156, color: '#9ea295' },
-  ];
+  // Load tags when db is initialized
+  const loadTags = async () => {
+    try {
+      const allTags = await dbGetAllTagsWithCounts();
+      setTags(allTags);
+    } catch (error) {
+      console.error('Failed to load tags:', error);
+    }
+  };
 
-  const mockShots = [
-    { name: 'SH010', tasks: 5, status: 'active' },
-    { name: 'SH020', tasks: 3, status: 'review' },
-    { name: 'SH030', tasks: 8, status: 'active' },
-  ];
+  // Load shots when db is initialized
+  const loadShots = async () => {
+    try {
+      const allShots = await dbGetAllShots();
+      setShots(allShots);
+    } catch (error) {
+      console.error('Failed to load shots:', error);
+    }
+  };
 
+  createEffect(() => {
+    if (props.dbInitialized) {
+      loadTags();
+      loadShots();
+    }
+  });
+
+  // Tag handlers
+  const handleCreateTag = async () => {
+    if (!newTagName().trim()) return;
+    try {
+      await dbCreateTag(newTagName().trim(), newTagColor());
+      setNewTagName('');
+      setShowCreateTag(false);
+      await loadTags();
+    } catch (error) {
+      console.error('Failed to create tag:', error);
+    }
+  };
+
+  const handleDeleteTag = async (tagId: number, e: MouseEvent) => {
+    e.stopPropagation();
+    if (!confirm('Delete this tag?')) return;
+    try {
+      await dbDeleteTag(tagId);
+      props.onTagFilterChange(props.activeTagFilters.filter(id => id !== tagId));
+      await loadTags();
+    } catch (error) {
+      console.error('Failed to delete tag:', error);
+    }
+  };
+
+  const handleTagClick = (tagId: number) => {
+    const current = props.activeTagFilters;
+    if (current.includes(tagId)) {
+      props.onTagFilterChange(current.filter(id => id !== tagId));
+    } else {
+      props.onTagFilterChange([...current, tagId]);
+    }
+  };
+
+  // Shot handlers
+  const handleCreateShot = async () => {
+    if (!newShotName().trim()) return;
+    try {
+      await dbCreateShot(newShotName().trim(), newShotSequence().trim() || undefined);
+      setNewShotName('');
+      setNewShotSequence('');
+      setShowCreateShot(false);
+      await loadShots();
+    } catch (error) {
+      console.error('Failed to create shot:', error);
+    }
+  };
+
+  const handleDeleteShot = async (shotId: number, e: MouseEvent) => {
+    e.stopPropagation();
+    if (!confirm('Delete this shot?')) return;
+    try {
+      await dbDeleteShot(shotId);
+      if (props.activeShotFilter === shotId) {
+        props.onShotFilterChange(null);
+      }
+      await loadShots();
+    } catch (error) {
+      console.error('Failed to delete shot:', error);
+    }
+  };
+
+  const handleShotClick = (shotId: number) => {
+    if (props.activeShotFilter === shotId) {
+      props.onShotFilterChange(null);
+    } else {
+      props.onShotFilterChange(shotId);
+    }
+  };
+
+  // Folder handlers
   const handleDeleteFolder = async (folderId: number, folderName: string, e: MouseEvent) => {
     e.stopPropagation();
-
     if (!props.dbInitialized) return;
 
     const confirmed = confirm(
@@ -123,12 +224,10 @@ const ProjectBrowser: Component<ProjectBrowserProps> = (props) => {
       const result = await dbScanDirectory(directoryPath);
       console.log(`Scan complete: ${result.indexed} indexed, ${result.errors} errors`);
 
-      // Switch to thumbnail generation phase
       setScanning(false);
       setGeneratingThumbs(true);
       setStatusText('Generating thumbnails...');
 
-      // Start polling backend for real progress
       startPolling();
 
       console.log('Generating thumbnails...');
@@ -137,15 +236,14 @@ const ProjectBrowser: Component<ProjectBrowserProps> = (props) => {
 
       stopPolling();
 
-      // Final poll to get accurate numbers
       const finalProgress = await dbGetThumbnailProgress();
       setProgressCurrent(finalProgress.current);
       setProgressTotal(finalProgress.total);
 
-      // Notify parent to reload assets
       await props.onAssetsUpdated();
+      // Also reload tags (counts may have changed)
+      await loadTags();
 
-      // Show completion
       const msg = result.indexed > 0
         ? `${result.indexed} assets indexed, ${thumbResult.generated} thumbnails generated`
         : `No new assets found (${thumbResult.skipped} already cached)`;
@@ -281,21 +379,53 @@ const ProjectBrowser: Component<ProjectBrowserProps> = (props) => {
           <div class="tags-panel">
             <div class="section-header">
               <h4>All Tags</h4>
-              <button class="btn-add" title="Create Tag">+</button>
+              <button class="btn-add" title="Create Tag" onClick={() => setShowCreateTag(!showCreateTag())}>+</button>
             </div>
+
+            <Show when={showCreateTag()}>
+              <div class="tag-create-form">
+                <input
+                  type="text"
+                  class="tag-name-input"
+                  placeholder="Tag name..."
+                  value={newTagName()}
+                  onInput={(e) => setNewTagName(e.currentTarget.value)}
+                  onKeyDown={(e) => e.key === 'Enter' && handleCreateTag()}
+                />
+                <input
+                  type="color"
+                  class="tag-color-input"
+                  value={newTagColor()}
+                  onInput={(e) => setNewTagColor(e.currentTarget.value)}
+                />
+                <button class="btn-add" onClick={handleCreateTag}>OK</button>
+              </div>
+            </Show>
+
             <div class="tag-list-browser">
-              <For each={mockTags}>
-                {(tag) => (
-                  <div class="tag-item">
-                    <div class="tag-color" style={{ 'background-color': tag.color }} />
-                    <span class="tag-name">{tag.name}</span>
-                    <span class="tag-count">{tag.count}</span>
+              <Show
+                when={tags().length > 0}
+                fallback={
+                  <div class="placeholder-text">
+                    No tags yet. Click + to create one.
                   </div>
-                )}
-              </For>
-            </div>
-            <div class="placeholder-text">
-              (M3 - Tag system pending)
+                }
+              >
+                <For each={tags()}>
+                  {(tag) => (
+                    <div
+                      class="tag-item"
+                      classList={{ active: props.activeTagFilters.includes(tag.id) }}
+                      onClick={() => handleTagClick(tag.id)}
+                    >
+                      <div class="tag-color" style={{ 'background-color': tag.color || '#8a8e7a' }} />
+                      <span class="tag-name">{tag.name}</span>
+                      <span class="tag-count">{tag.count}</span>
+                      <button class="btn-delete-tag" onClick={(e) => handleDeleteTag(tag.id, e)}>×</button>
+                    </div>
+                  )}
+                </For>
+              </Show>
             </div>
           </div>
         )}
@@ -304,27 +434,60 @@ const ProjectBrowser: Component<ProjectBrowserProps> = (props) => {
           <div class="shots-panel">
             <div class="section-header">
               <h4>Shots</h4>
-              <button class="btn-add" title="Create Shot">+</button>
+              <button class="btn-add" title="Create Shot" onClick={() => setShowCreateShot(!showCreateShot())}>+</button>
             </div>
+
+            <Show when={showCreateShot()}>
+              <div class="shot-create-form">
+                <input
+                  type="text"
+                  class="tag-name-input"
+                  placeholder="Shot name..."
+                  value={newShotName()}
+                  onInput={(e) => setNewShotName(e.currentTarget.value)}
+                  onKeyDown={(e) => e.key === 'Enter' && handleCreateShot()}
+                />
+                <input
+                  type="text"
+                  class="tag-name-input"
+                  placeholder="Sequence..."
+                  value={newShotSequence()}
+                  onInput={(e) => setNewShotSequence(e.currentTarget.value)}
+                  style={{ width: '80px', flex: 'none' }}
+                />
+                <button class="btn-add" onClick={handleCreateShot}>OK</button>
+              </div>
+            </Show>
+
             <div class="shot-list">
-              <For each={mockShots}>
-                {(shot) => (
-                  <div class="shot-item">
-                    <div class="shot-header">
-                      <span class="shot-name">{shot.name}</span>
-                      <span class={`shot-status status-${shot.status}`}>
-                        {shot.status}
-                      </span>
-                    </div>
-                    <div class="shot-info">
-                      <span class="shot-tasks">{shot.tasks} tasks</span>
-                    </div>
+              <Show
+                when={shots().length > 0}
+                fallback={
+                  <div class="placeholder-text">
+                    No shots yet. Click + to create one.
                   </div>
-                )}
-              </For>
-            </div>
-            <div class="placeholder-text">
-              (M3 - Shot system pending)
+                }
+              >
+                <For each={shots()}>
+                  {(shot) => (
+                    <div
+                      class="shot-item"
+                      classList={{ active: props.activeShotFilter === shot.id }}
+                      onClick={() => handleShotClick(shot.id)}
+                    >
+                      <div class="shot-header">
+                        <span class="shot-name">
+                          {shot.sequence ? `${shot.sequence} / ` : ''}{shot.name}
+                        </span>
+                        <span class={`shot-status status-${shot.status}`}>
+                          {shot.status}
+                        </span>
+                      </div>
+                      <button class="btn-delete-tag" onClick={(e) => handleDeleteShot(shot.id, e)}>×</button>
+                    </div>
+                  )}
+                </For>
+              </Show>
             </div>
           </div>
         )}

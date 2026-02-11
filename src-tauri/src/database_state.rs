@@ -1,4 +1,4 @@
-use noviforma_core::{Asset, Database, ThumbnailGenerator, Tag, Note, Rating, Folder};
+use noviforma_core::{Asset, AssetFilter, Database, ThumbnailGenerator, Tag, TagWithCount, Note, Rating, Folder, Shot, ShotAsset};
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
@@ -401,6 +401,102 @@ impl DatabaseState {
         }
 
         Ok(())
+    }
+
+    // ============================================================
+    // Extended Tag Methods
+    // ============================================================
+
+    pub fn update_tag(&self, tag_id: i64, name: &str, color: Option<&str>) -> Result<(), String> {
+        let db = self.db.lock().unwrap();
+        let db = db.as_ref().ok_or("Database not initialized")?;
+        db.update_tag(tag_id, name, color)
+            .map_err(|e| format!("Failed to update tag: {}", e))
+    }
+
+    pub fn get_all_tags_with_counts(&self) -> Result<Vec<TagWithCount>, String> {
+        let db = self.db.lock().unwrap();
+        let db = db.as_ref().ok_or("Database not initialized")?;
+        db.get_all_tags_with_counts()
+            .map_err(|e| format!("Failed to get tags with counts: {}", e))
+    }
+
+    // ============================================================
+    // Shot Methods
+    // ============================================================
+
+    pub fn create_shot(&self, name: &str, sequence: Option<&str>, description: Option<&str>) -> Result<i64, String> {
+        let db = self.db.lock().unwrap();
+        let db = db.as_ref().ok_or("Database not initialized")?;
+        db.create_shot(name, sequence, description)
+            .map_err(|e| format!("Failed to create shot: {}", e))
+    }
+
+    pub fn get_shot(&self, shot_id: i64) -> Result<Option<Shot>, String> {
+        let db = self.db.lock().unwrap();
+        let db = db.as_ref().ok_or("Database not initialized")?;
+        db.get_shot(shot_id)
+            .map_err(|e| format!("Failed to get shot: {}", e))
+    }
+
+    pub fn get_all_shots(&self) -> Result<Vec<Shot>, String> {
+        let db = self.db.lock().unwrap();
+        let db = db.as_ref().ok_or("Database not initialized")?;
+        db.get_all_shots()
+            .map_err(|e| format!("Failed to get shots: {}", e))
+    }
+
+    pub fn update_shot(&self, shot_id: i64, name: &str, sequence: Option<&str>, status: &str, description: Option<&str>) -> Result<(), String> {
+        let db = self.db.lock().unwrap();
+        let db = db.as_ref().ok_or("Database not initialized")?;
+        db.update_shot(shot_id, name, sequence, status, description)
+            .map_err(|e| format!("Failed to update shot: {}", e))
+    }
+
+    pub fn delete_shot(&self, shot_id: i64) -> Result<(), String> {
+        let db = self.db.lock().unwrap();
+        let db = db.as_ref().ok_or("Database not initialized")?;
+        db.delete_shot(shot_id)
+            .map_err(|e| format!("Failed to delete shot: {}", e))
+    }
+
+    pub fn add_asset_to_shot(&self, shot_id: i64, asset_id: i64, role: Option<&str>, version: Option<i32>) -> Result<(), String> {
+        let db = self.db.lock().unwrap();
+        let db = db.as_ref().ok_or("Database not initialized")?;
+        db.add_asset_to_shot(shot_id, asset_id, role, version)
+            .map_err(|e| format!("Failed to add asset to shot: {}", e))
+    }
+
+    pub fn remove_asset_from_shot(&self, shot_id: i64, asset_id: i64) -> Result<(), String> {
+        let db = self.db.lock().unwrap();
+        let db = db.as_ref().ok_or("Database not initialized")?;
+        db.remove_asset_from_shot(shot_id, asset_id)
+            .map_err(|e| format!("Failed to remove asset from shot: {}", e))
+    }
+
+    pub fn get_shot_assets(&self, shot_id: i64) -> Result<Vec<ShotAsset>, String> {
+        let db = self.db.lock().unwrap();
+        let db = db.as_ref().ok_or("Database not initialized")?;
+        db.get_shot_assets(shot_id)
+            .map_err(|e| format!("Failed to get shot assets: {}", e))
+    }
+
+    pub fn get_asset_shots(&self, asset_id: i64) -> Result<Vec<Shot>, String> {
+        let db = self.db.lock().unwrap();
+        let db = db.as_ref().ok_or("Database not initialized")?;
+        db.get_asset_shots(asset_id)
+            .map_err(|e| format!("Failed to get asset shots: {}", e))
+    }
+
+    // ============================================================
+    // Search / Filter
+    // ============================================================
+
+    pub fn search_assets(&self, filter: &AssetFilter) -> Result<Vec<Asset>, String> {
+        let db = self.db.lock().unwrap();
+        let db = db.as_ref().ok_or("Database not initialized")?;
+        db.search_assets(filter)
+            .map_err(|e| format!("Failed to search assets: {}", e))
     }
 }
 

@@ -83,3 +83,46 @@ pub struct Folder {
     pub scanned_at: i64,
     pub last_accessed: i64,
 }
+
+/// Represents a shot (or sequence child) in the database
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Shot {
+    pub id: i64,
+    pub name: String,
+    pub sequence: Option<String>,
+    pub status: String,
+    pub description: Option<String>,
+    pub created_at: i64,
+    pub updated_at: i64,
+}
+
+/// Junction record linking an asset to a shot
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ShotAsset {
+    pub shot_id: i64,
+    pub asset_id: i64,
+    pub role: Option<String>,
+    pub version: Option<i32>,
+    pub added_at: i64,
+}
+
+/// Combined filter criteria for searching assets
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AssetFilter {
+    pub folder_id: Option<i64>,
+    pub search_query: Option<String>,
+    pub tag_ids: Option<Vec<i64>>,
+    pub min_rating: Option<u32>,
+    pub shot_id: Option<i64>,
+}
+
+/// Tag with its usage count (for browser display)
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TagWithCount {
+    pub id: i64,
+    pub name: String,
+    pub color: Option<String>,
+    pub created_at: i64,
+    pub count: i64,
+}

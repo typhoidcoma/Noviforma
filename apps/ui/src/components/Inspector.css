@@ -60,6 +60,34 @@
   padding: 16px;
 }
 
+/* Star Rating */
+.inspector-rating {
+  display: flex;
+  justify-content: center;
+  gap: 4px;
+  padding: 10px 0;
+  background: #1a2228;
+}
+
+.star {
+  background: none;
+  border: none;
+  font-size: 22px;
+  cursor: pointer;
+  color: #4a5e67;
+  padding: 0 2px;
+  transition: color 0.15s;
+  line-height: 1;
+}
+
+.star:hover {
+  color: #d4a843;
+}
+
+.star.filled {
+  color: #d4a843;
+}
+
 .inspector-section {
   margin-bottom: 24px;
 }
@@ -100,6 +128,7 @@
   font-weight: 600;
 }
 
+/* Tags in Inspector */
 .tag-list {
   display: flex;
   flex-wrap: wrap;
@@ -113,6 +142,30 @@
   padding: 4px 10px;
   border-radius: 3px;
   font-size: 12px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.tag-empty {
+  font-size: 12px;
+  color: #6a7060;
+  font-style: italic;
+}
+
+.tag-remove {
+  background: none;
+  border: none;
+  color: #6a7060;
+  font-size: 14px;
+  cursor: pointer;
+  padding: 0;
+  line-height: 1;
+  transition: color 0.15s;
+}
+
+.tag-remove:hover {
+  color: #E05839;
 }
 
 .btn-add-tag {
@@ -133,6 +186,71 @@
   border-color: #6a7e87;
 }
 
+/* Tag & Shot Picker Dropdown */
+.tag-picker-dropdown {
+  margin-top: 6px;
+  background: #253038;
+  border: 1px solid #4a5e67;
+  border-radius: 4px;
+  max-height: 180px;
+  overflow-y: auto;
+}
+
+.tag-picker-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  cursor: pointer;
+  font-size: 13px;
+  color: #E2FEFD;
+  transition: background 0.15s;
+}
+
+.tag-picker-item:hover {
+  background: #3B4E57;
+}
+
+.tag-picker-item .tag-color {
+  width: 10px;
+  height: 10px;
+  border-radius: 2px;
+  flex-shrink: 0;
+}
+
+.picker-empty {
+  padding: 12px;
+  text-align: center;
+  font-size: 12px;
+  color: #6a7060;
+  font-style: italic;
+}
+
+/* Shot Assignments */
+.shot-assignment-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-bottom: 8px;
+}
+
+.shot-assignment-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 6px 10px;
+  background: #3B4E57;
+  border: 1px solid #4a5e67;
+  border-radius: 3px;
+}
+
+.shot-assignment-name {
+  font-size: 12px;
+  color: #E2FEFD;
+  font-family: 'Consolas', monospace;
+}
+
+/* Notes */
 .notes-input {
   width: 100%;
   padding: 8px;
@@ -143,6 +261,7 @@
   font-family: inherit;
   font-size: 13px;
   resize: vertical;
+  box-sizing: border-box;
 }
 
 .notes-input:focus {
@@ -150,6 +269,7 @@
   border-color: #5AB6C6;
 }
 
+/* Actions */
 .inspector-actions {
   display: flex;
   flex-direction: column;
@@ -217,6 +337,9 @@
   font-size: 12px;
   color: #b8bca8;
   font-family: 'Consolas', monospace;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .btn-remove {

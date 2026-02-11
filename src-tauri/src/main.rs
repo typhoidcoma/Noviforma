@@ -42,6 +42,21 @@ fn main() {
             commands::database::db_get_current_folder,
             commands::database::db_get_assets_by_folder,
             commands::database::db_delete_folder,
+            // Extended tag commands
+            commands::database::db_update_tag,
+            commands::database::db_get_all_tags_with_counts,
+            // Shot commands
+            commands::database::db_create_shot,
+            commands::database::db_get_all_shots,
+            commands::database::db_get_shot,
+            commands::database::db_update_shot,
+            commands::database::db_delete_shot,
+            commands::database::db_add_asset_to_shot,
+            commands::database::db_remove_asset_from_shot,
+            commands::database::db_get_shot_assets,
+            commands::database::db_get_asset_shots,
+            // Search command
+            commands::database::db_search_assets,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

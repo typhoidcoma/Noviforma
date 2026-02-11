@@ -145,3 +145,164 @@ export async function dbGetAssetsByFolder(folderId: number): Promise<Asset[]> {
 export async function dbDeleteFolder(folderId: number): Promise<void> {
   return await invoke('db_delete_folder', { folderId });
 }
+
+// ============================================================
+// Tag Types & Functions
+// ============================================================
+
+export interface Tag {
+  id: number;
+  name: string;
+  color: string | null;
+  created_at: number;
+}
+
+export interface TagWithCount extends Tag {
+  count: number;
+}
+
+export async function dbCreateTag(name: string, color?: string): Promise<number> {
+  return await invoke('db_create_tag', { name, color: color ?? null });
+}
+
+export async function dbGetAllTags(): Promise<Tag[]> {
+  return await invoke('db_get_all_tags');
+}
+
+export async function dbGetAllTagsWithCounts(): Promise<TagWithCount[]> {
+  return await invoke('db_get_all_tags_with_counts');
+}
+
+export async function dbUpdateTag(tagId: number, name: string, color?: string): Promise<void> {
+  return await invoke('db_update_tag', { tagId, name, color: color ?? null });
+}
+
+export async function dbDeleteTag(tagId: number): Promise<void> {
+  return await invoke('db_delete_tag', { tagId });
+}
+
+export async function dbAddTagToAsset(assetId: number, tagId: number): Promise<void> {
+  return await invoke('db_add_tag_to_asset', { assetId, tagId });
+}
+
+export async function dbRemoveTagFromAsset(assetId: number, tagId: number): Promise<void> {
+  return await invoke('db_remove_tag_from_asset', { assetId, tagId });
+}
+
+export async function dbGetAssetTags(assetId: number): Promise<Tag[]> {
+  return await invoke('db_get_asset_tags', { assetId });
+}
+
+// ============================================================
+// Note Types & Functions
+// ============================================================
+
+export interface Note {
+  id: number;
+  asset_id: number;
+  content: string;
+  created_at: number;
+  updated_at: number;
+}
+
+export async function dbSetAssetNote(assetId: number, content: string): Promise<void> {
+  return await invoke('db_set_asset_note', { assetId, content });
+}
+
+export async function dbGetAssetNote(assetId: number): Promise<Note | null> {
+  return await invoke('db_get_asset_note', { assetId });
+}
+
+// ============================================================
+// Rating Types & Functions
+// ============================================================
+
+export interface Rating {
+  id: number;
+  asset_id: number;
+  rating: number;
+  created_at: number;
+  updated_at: number;
+}
+
+export async function dbSetAssetRating(assetId: number, rating: number): Promise<void> {
+  return await invoke('db_set_asset_rating', { assetId, rating });
+}
+
+export async function dbGetAssetRating(assetId: number): Promise<Rating | null> {
+  return await invoke('db_get_asset_rating', { assetId });
+}
+
+// ============================================================
+// Shot Types & Functions
+// ============================================================
+
+export interface Shot {
+  id: number;
+  name: string;
+  sequence: string | null;
+  status: string;
+  description: string | null;
+  created_at: number;
+  updated_at: number;
+}
+
+export interface ShotAsset {
+  shot_id: number;
+  asset_id: number;
+  role: string | null;
+  version: number | null;
+  added_at: number;
+}
+
+export async function dbCreateShot(name: string, sequence?: string, description?: string): Promise<number> {
+  return await invoke('db_create_shot', { name, sequence: sequence ?? null, description: description ?? null });
+}
+
+export async function dbGetAllShots(): Promise<Shot[]> {
+  return await invoke('db_get_all_shots');
+}
+
+export async function dbGetShot(shotId: number): Promise<Shot | null> {
+  return await invoke('db_get_shot', { shotId });
+}
+
+export async function dbUpdateShot(shotId: number, name: string, sequence: string | null, status: string, description: string | null): Promise<void> {
+  return await invoke('db_update_shot', { shotId, name, sequence, status, description });
+}
+
+export async function dbDeleteShot(shotId: number): Promise<void> {
+  return await invoke('db_delete_shot', { shotId });
+}
+
+export async function dbAddAssetToShot(shotId: number, assetId: number, role?: string, version?: number): Promise<void> {
+  return await invoke('db_add_asset_to_shot', { shotId, assetId, role: role ?? null, version: version ?? null });
+}
+
+export async function dbRemoveAssetFromShot(shotId: number, assetId: number): Promise<void> {
+  return await invoke('db_remove_asset_from_shot', { shotId, assetId });
+}
+
+export async function dbGetShotAssets(shotId: number): Promise<ShotAsset[]> {
+  return await invoke('db_get_shot_assets', { shotId });
+}
+
+export async function dbGetAssetShots(assetId: number): Promise<Shot[]> {
+  return await invoke('db_get_asset_shots', { assetId });
+}
+
+// ============================================================
+// Search / Filter
+// ============================================================
+
+export interface AssetFilter {
+  folderId?: number | null;
+  searchQuery?: string | null;
+  tagIds?: number[] | null;
+  minRating?: number | null;
+  shotId?: number | null;
+}
+
+export async function dbSearchAssets(filter: AssetFilter): Promise<Asset[]> {
+  return await invoke('db_search_assets', { filter });
+}

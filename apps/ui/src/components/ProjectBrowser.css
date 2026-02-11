@@ -223,6 +223,44 @@
   border-radius: 3px;
 }
 
+/* Tag Create Form */
+.tag-create-form,
+.shot-create-form {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 12px;
+  align-items: center;
+}
+
+.tag-name-input {
+  flex: 1;
+  padding: 6px 8px;
+  background: #3B4E57;
+  color: #E2FEFD;
+  border: 1px solid #4a5e67;
+  border-radius: 4px;
+  font-size: 13px;
+}
+
+.tag-name-input:focus {
+  outline: none;
+  border-color: #5AB6C6;
+}
+
+.tag-name-input::placeholder {
+  color: #6a7060;
+}
+
+.tag-color-input {
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 1px solid #4a5e67;
+  border-radius: 4px;
+  background: none;
+  cursor: pointer;
+}
+
 /* Tags Panel */
 .tag-list-browser {
   display: flex;
@@ -247,6 +285,11 @@
   border-color: #5a6e77;
 }
 
+.tag-item.active {
+  background: #2a4a55;
+  border-color: #5AB6C6;
+}
+
 .tag-color {
   width: 12px;
   height: 12px;
@@ -269,6 +312,27 @@
   font-family: 'Consolas', monospace;
 }
 
+.btn-delete-tag {
+  opacity: 0;
+  background: none;
+  border: none;
+  color: #6a7060;
+  font-size: 16px;
+  cursor: pointer;
+  padding: 0 4px;
+  line-height: 1;
+  transition: all 0.15s;
+}
+
+.tag-item:hover .btn-delete-tag,
+.shot-item:hover .btn-delete-tag {
+  opacity: 1;
+}
+
+.btn-delete-tag:hover {
+  color: #E05839;
+}
+
 /* Shots Panel */
 .shot-list {
   display: flex;
@@ -277,6 +341,9 @@
 }
 
 .shot-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
   padding: 12px;
   background: #3B4E57;
   border: 1px solid #4a5e67;
@@ -288,6 +355,11 @@
 .shot-item:hover {
   background: #324550;
   border-color: #5a6e77;
+}
+
+.shot-item.active {
+  background: #2a4a55;
+  border-color: #5AB6C6;
 }
 
 .shot-header {

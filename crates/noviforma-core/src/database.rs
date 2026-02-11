@@ -1,4 +1,4 @@
-use crate::models::{Asset, Folder};
+use crate::models::{Asset, AssetFilter, Folder, Shot, ShotAsset, TagWithCount};
 use rusqlite::{params, Connection, Result};
 use std::path::Path;
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -23,6 +23,12 @@ impl Database {
             Self::migrate_to_v2(&conn)?;
             conn.execute("PRAGMA user_version = 2", [])?;
             tracing::info!("Database migrated to version 2");
+        }
+
+        if version < 3 {
+            Self::migrate_to_v3(&conn)?;
+            conn.execute("PRAGMA user_version = 3", [])?;
+            tracing::info!("Database migrated to version 3");
         }
 
         let db = Self { conn };
@@ -118,6 +124,46 @@ impl Database {
             tracing::info!("Migration complete: added folder_id column and created Unknown folder");
         }
 
+        Ok(())
+    }
+
+    /// Migrate database from v2 to v3 (adds shots and shot_assets tables)
+    fn migrate_to_v3(conn: &Connection) -> Result<()> {
+        tracing::info!("Running database migration to v3...");
+
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS shots (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT NOT NULL,
+                sequence TEXT,
+                status TEXT NOT NULL DEFAULT 'active',
+                description TEXT,
+                created_at INTEGER NOT NULL,
+                updated_at INTEGER NOT NULL
+            )",
+            [],
+        )?;
+
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS shot_assets (
+                shot_id INTEGER NOT NULL,
+                asset_id INTEGER NOT NULL,
+                role TEXT,
+                version INTEGER,
+                added_at INTEGER NOT NULL,
+                PRIMARY KEY (shot_id, asset_id),
+                FOREIGN KEY (shot_id) REFERENCES shots(id) ON DELETE CASCADE,
+                FOREIGN KEY (asset_id) REFERENCES assets(id) ON DELETE CASCADE
+            )",
+            [],
+        )?;
+
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_shot_assets_asset_id ON shot_assets(asset_id)", [])?;
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_shot_assets_shot_id ON shot_assets(shot_id)", [])?;
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_shots_sequence ON shots(sequence)", [])?;
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_assets_filename ON assets(filename)", [])?;
+
+        tracing::info!("Migration to v3 complete: added shots and shot_assets tables");
         Ok(())
     }
 
@@ -238,6 +284,55 @@ impl Database {
                 updated_at INTEGER NOT NULL,
                 FOREIGN KEY (asset_id) REFERENCES assets(id) ON DELETE CASCADE
             )",
+            [],
+        )?;
+
+        // Shots table
+        self.conn.execute(
+            "CREATE TABLE IF NOT EXISTS shots (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT NOT NULL,
+                sequence TEXT,
+                status TEXT NOT NULL DEFAULT 'active',
+                description TEXT,
+                created_at INTEGER NOT NULL,
+                updated_at INTEGER NOT NULL
+            )",
+            [],
+        )?;
+
+        // Shot-asset junction table
+        self.conn.execute(
+            "CREATE TABLE IF NOT EXISTS shot_assets (
+                shot_id INTEGER NOT NULL,
+                asset_id INTEGER NOT NULL,
+                role TEXT,
+                version INTEGER,
+                added_at INTEGER NOT NULL,
+                PRIMARY KEY (shot_id, asset_id),
+                FOREIGN KEY (shot_id) REFERENCES shots(id) ON DELETE CASCADE,
+                FOREIGN KEY (asset_id) REFERENCES assets(id) ON DELETE CASCADE
+            )",
+            [],
+        )?;
+
+        self.conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_shot_assets_asset_id ON shot_assets(asset_id)",
+            [],
+        )?;
+
+        self.conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_shot_assets_shot_id ON shot_assets(shot_id)",
+            [],
+        )?;
+
+        self.conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_shots_sequence ON shots(sequence)",
+            [],
+        )?;
+
+        self.conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_assets_filename ON assets(filename)",
             [],
         )?;
 
@@ -766,5 +861,315 @@ impl Database {
         self.conn.execute("DELETE FROM folders WHERE id = ?1", params![folder_id])?;
         // Assets are automatically deleted via CASCADE
         Ok(())
+    }
+
+    // ============================================================
+    // Extended Tag Methods
+    // ============================================================
+
+    /// Update a tag's name and color
+    pub fn update_tag(&self, tag_id: i64, name: &str, color: Option<&str>) -> Result<()> {
+        self.conn.execute(
+            "UPDATE tags SET name = ?1, color = ?2 WHERE id = ?3",
+            params![name, color, tag_id],
+        )?;
+        Ok(())
+    }
+
+    /// Get all tags with their usage counts
+    pub fn get_all_tags_with_counts(&self) -> Result<Vec<TagWithCount>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT t.id, t.name, t.color, t.created_at,
+                    COUNT(at.asset_id) as count
+             FROM tags t
+             LEFT JOIN asset_tags at ON t.id = at.tag_id
+             GROUP BY t.id
+             ORDER BY t.name"
+        )?;
+
+        let tags = stmt
+            .query_map([], |row| {
+                Ok(TagWithCount {
+                    id: row.get(0)?,
+                    name: row.get(1)?,
+                    color: row.get(2)?,
+                    created_at: row.get(3)?,
+                    count: row.get(4)?,
+                })
+            })?
+            .collect::<Result<Vec<_>>>()?;
+
+        Ok(tags)
+    }
+
+    // ============================================================
+    // Shot Methods
+    // ============================================================
+
+    /// Create a new shot
+    pub fn create_shot(&self, name: &str, sequence: Option<&str>, description: Option<&str>) -> Result<i64> {
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_secs() as i64;
+
+        self.conn.execute(
+            "INSERT INTO shots (name, sequence, status, description, created_at, updated_at)
+             VALUES (?1, ?2, 'active', ?3, ?4, ?4)",
+            params![name, sequence, description, now],
+        )?;
+
+        Ok(self.conn.last_insert_rowid())
+    }
+
+    /// Get a shot by ID
+    pub fn get_shot(&self, shot_id: i64) -> Result<Option<Shot>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT id, name, sequence, status, description, created_at, updated_at
+             FROM shots WHERE id = ?1"
+        )?;
+
+        let result = stmt.query_row([shot_id], |row| {
+            Ok(Shot {
+                id: row.get(0)?,
+                name: row.get(1)?,
+                sequence: row.get(2)?,
+                status: row.get(3)?,
+                description: row.get(4)?,
+                created_at: row.get(5)?,
+                updated_at: row.get(6)?,
+            })
+        });
+
+        match result {
+            Ok(shot) => Ok(Some(shot)),
+            Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
+            Err(e) => Err(e),
+        }
+    }
+
+    /// Get all shots
+    pub fn get_all_shots(&self) -> Result<Vec<Shot>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT id, name, sequence, status, description, created_at, updated_at
+             FROM shots
+             ORDER BY sequence, name"
+        )?;
+
+        let shots = stmt
+            .query_map([], |row| {
+                Ok(Shot {
+                    id: row.get(0)?,
+                    name: row.get(1)?,
+                    sequence: row.get(2)?,
+                    status: row.get(3)?,
+                    description: row.get(4)?,
+                    created_at: row.get(5)?,
+                    updated_at: row.get(6)?,
+                })
+            })?
+            .collect::<Result<Vec<_>>>()?;
+
+        Ok(shots)
+    }
+
+    /// Update a shot
+    pub fn update_shot(&self, shot_id: i64, name: &str, sequence: Option<&str>, status: &str, description: Option<&str>) -> Result<()> {
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_secs() as i64;
+
+        self.conn.execute(
+            "UPDATE shots SET name = ?1, sequence = ?2, status = ?3, description = ?4, updated_at = ?5 WHERE id = ?6",
+            params![name, sequence, status, description, now, shot_id],
+        )?;
+        Ok(())
+    }
+
+    /// Delete a shot
+    pub fn delete_shot(&self, shot_id: i64) -> Result<()> {
+        self.conn.execute("DELETE FROM shots WHERE id = ?1", params![shot_id])?;
+        Ok(())
+    }
+
+    /// Add an asset to a shot
+    pub fn add_asset_to_shot(&self, shot_id: i64, asset_id: i64, role: Option<&str>, version: Option<i32>) -> Result<()> {
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_secs() as i64;
+
+        self.conn.execute(
+            "INSERT OR IGNORE INTO shot_assets (shot_id, asset_id, role, version, added_at)
+             VALUES (?1, ?2, ?3, ?4, ?5)",
+            params![shot_id, asset_id, role, version, now],
+        )?;
+        Ok(())
+    }
+
+    /// Remove an asset from a shot
+    pub fn remove_asset_from_shot(&self, shot_id: i64, asset_id: i64) -> Result<()> {
+        self.conn.execute(
+            "DELETE FROM shot_assets WHERE shot_id = ?1 AND asset_id = ?2",
+            params![shot_id, asset_id],
+        )?;
+        Ok(())
+    }
+
+    /// Get all shot-asset records for a shot
+    pub fn get_shot_assets(&self, shot_id: i64) -> Result<Vec<ShotAsset>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT shot_id, asset_id, role, version, added_at
+             FROM shot_assets WHERE shot_id = ?1
+             ORDER BY added_at"
+        )?;
+
+        let records = stmt
+            .query_map([shot_id], |row| {
+                Ok(ShotAsset {
+                    shot_id: row.get(0)?,
+                    asset_id: row.get(1)?,
+                    role: row.get(2)?,
+                    version: row.get(3)?,
+                    added_at: row.get(4)?,
+                })
+            })?
+            .collect::<Result<Vec<_>>>()?;
+
+        Ok(records)
+    }
+
+    /// Get all shots that an asset belongs to
+    pub fn get_asset_shots(&self, asset_id: i64) -> Result<Vec<Shot>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT s.id, s.name, s.sequence, s.status, s.description, s.created_at, s.updated_at
+             FROM shots s
+             INNER JOIN shot_assets sa ON s.id = sa.shot_id
+             WHERE sa.asset_id = ?1
+             ORDER BY s.sequence, s.name"
+        )?;
+
+        let shots = stmt
+            .query_map([asset_id], |row| {
+                Ok(Shot {
+                    id: row.get(0)?,
+                    name: row.get(1)?,
+                    sequence: row.get(2)?,
+                    status: row.get(3)?,
+                    description: row.get(4)?,
+                    created_at: row.get(5)?,
+                    updated_at: row.get(6)?,
+                })
+            })?
+            .collect::<Result<Vec<_>>>()?;
+
+        Ok(shots)
+    }
+
+    // ============================================================
+    // Search / Filter
+    // ============================================================
+
+    /// Search assets with combined filter criteria
+    pub fn search_assets(&self, filter: &AssetFilter) -> Result<Vec<Asset>> {
+        let mut sql = String::from(
+            "SELECT a.id, a.path, a.filename, a.file_size, a.width, a.height,
+                    a.thumbnail_path, a.folder_id, a.created_at, a.indexed_at
+             FROM assets a"
+        );
+
+        let mut conditions: Vec<String> = Vec::new();
+        let mut params_vec: Vec<Box<dyn rusqlite::types::ToSql>> = Vec::new();
+        let mut param_idx = 1;
+
+        // folder_id filter
+        if let Some(folder_id) = filter.folder_id {
+            conditions.push(format!("a.folder_id = ?{}", param_idx));
+            params_vec.push(Box::new(folder_id));
+            param_idx += 1;
+        }
+
+        // filename LIKE filter
+        if let Some(ref query) = filter.search_query {
+            if !query.is_empty() {
+                conditions.push(format!("a.filename LIKE ?{}", param_idx));
+                params_vec.push(Box::new(format!("%{}%", query)));
+                param_idx += 1;
+            }
+        }
+
+        // min_rating filter (subquery)
+        if let Some(min_rating) = filter.min_rating {
+            if min_rating > 0 {
+                conditions.push(format!(
+                    "a.id IN (SELECT asset_id FROM ratings WHERE rating >= ?{})",
+                    param_idx
+                ));
+                params_vec.push(Box::new(min_rating));
+                param_idx += 1;
+            }
+        }
+
+        // tag_ids filter (subquery with HAVING for AND logic)
+        if let Some(ref tag_ids) = filter.tag_ids {
+            if !tag_ids.is_empty() {
+                let placeholders: Vec<String> = tag_ids.iter().enumerate()
+                    .map(|(i, _)| format!("?{}", param_idx + i))
+                    .collect();
+                conditions.push(format!(
+                    "a.id IN (SELECT asset_id FROM asset_tags WHERE tag_id IN ({}) GROUP BY asset_id HAVING COUNT(DISTINCT tag_id) = {})",
+                    placeholders.join(", "),
+                    tag_ids.len()
+                ));
+                for tag_id in tag_ids {
+                    params_vec.push(Box::new(*tag_id));
+                    param_idx += 1;
+                }
+            }
+        }
+
+        // shot_id filter (subquery)
+        if let Some(shot_id) = filter.shot_id {
+            conditions.push(format!(
+                "a.id IN (SELECT asset_id FROM shot_assets WHERE shot_id = ?{})",
+                param_idx
+            ));
+            params_vec.push(Box::new(shot_id));
+            param_idx += 1;
+        }
+
+        // Build WHERE clause
+        if !conditions.is_empty() {
+            sql.push_str(" WHERE ");
+            sql.push_str(&conditions.join(" AND "));
+        }
+
+        sql.push_str(" ORDER BY a.indexed_at DESC");
+
+        // Suppress unused variable warning
+        let _ = param_idx;
+
+        // Execute with dynamic params
+        let params_refs: Vec<&dyn rusqlite::types::ToSql> = params_vec.iter().map(|p| p.as_ref()).collect();
+        let mut stmt = self.conn.prepare(&sql)?;
+        let assets = stmt
+            .query_map(params_refs.as_slice(), |row| {
+                Ok(Asset {
+                    id: row.get(0)?,
+                    path: row.get(1)?,
+                    filename: row.get(2)?,
+                    file_size: row.get(3)?,
+                    width: row.get(4)?,
+                    height: row.get(5)?,
+                    thumbnail_path: row.get(6)?,
+                    folder_id: row.get(7)?,
+                    created_at: row.get(8)?,
+                    indexed_at: row.get(9)?,
+                })
+            })?
+            .collect::<Result<Vec<_>>>()?;
+
+        Ok(assets)
     }
 }
