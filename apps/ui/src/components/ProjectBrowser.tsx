@@ -1,10 +1,15 @@
-import { Component, createSignal, For, onCleanup } from 'solid-js';
-import { dbScanDirectory, dbGenerateThumbnails, dbClearAllAssets } from '../lib/database';
+import { Component, createSignal, For, onCleanup, Show } from 'solid-js';
+import { dbScanDirectory, dbGenerateThumbnails, dbClearAllAssets, dbGetFolder, dbDeleteFolder, type Folder } from '../lib/database';
 import { listen } from '@tauri-apps/api/event';
+import { ProgressBar } from './ProgressBar';
+import { Modal } from './Modal';
 import './ProjectBrowser.css';
 
 interface ProjectBrowserProps {
   dbInitialized: boolean;
+  folders: Folder[];
+  currentFolderId: number | null;
+  onFolderSelect: (folderId: number) => void;
   onAssetsUpdated: () => void;
 }
 
@@ -65,6 +70,36 @@ const ProjectBrowser: Component<ProjectBrowserProps> = (props) => {
     }
   };
 
+  const handleDeleteFolder = async (folderId: number, folderName: string, e: MouseEvent) => {
+    e.stopPropagation(); // Prevent folder selection when clicking delete
+
+    if (!props.dbInitialized) return;
+
+    const confirmed = confirm(
+      `Delete folder "${folderName}"?\n\n` +
+      `This will remove:\n` +
+      `• The folder from the project list\n` +
+      `• All assets in this folder\n` +
+      `• All thumbnail caches\n\n` +
+      `This action cannot be undone.`
+    );
+
+    if (!confirmed) return;
+
+    try {
+      await dbDeleteFolder(folderId);
+      console.log(`Deleted folder ${folderId}: ${folderName}`);
+
+      // Refresh folder list and assets
+      await props.onAssetsUpdated();
+
+      alert(`Folder "${folderName}" deleted successfully.`);
+    } catch (error) {
+      console.error('Failed to delete folder:', error);
+      alert(`Failed to delete folder: ${error}`);
+    }
+  };
+
   const handleScanDirectory = async () => {
     if (!props.dbInitialized || scanning()) return;
 
@@ -96,8 +131,27 @@ const ProjectBrowser: Component<ProjectBrowserProps> = (props) => {
       // Notify parent to reload assets
       await props.onAssetsUpdated();
 
+      // Get current folder info
+      const { dbGetCurrentFolder } = await import('../lib/database');
+      const currentFolderId = await dbGetCurrentFolder();
+      const folder = currentFolderId ? await dbGetFolder(currentFolderId) : null;
+
       setScanProgress('');
-      alert(`Scan complete!\n${result.indexed} assets indexed\n${thumbResult.generated} thumbnails generated`);
+
+      // Show helpful message based on what was found
+      let message = `Scan complete!\n\n`;
+      if (result.indexed > 0) {
+        message += `📥 ${result.indexed} new assets indexed\n`;
+      } else {
+        message += `✓ No new assets found (folder already scanned)\n`;
+      }
+      message += `🖼️ ${thumbResult.generated} thumbnails generated, ${thumbResult.skipped} skipped\n`;
+      if (folder) {
+        message += `📂 Folder: ${folder.name}\n`;
+        message += `📊 Total assets in folder: ${folder.asset_count}`;
+      }
+
+      alert(message);
     } catch (error) {
       console.error('Scan failed:', error);
       alert(`Scan failed: ${error}`);
@@ -110,6 +164,32 @@ const ProjectBrowser: Component<ProjectBrowserProps> = (props) => {
 
   return (
     <div class="project-browser">
+      {/* Progress Modal - shown during scanning/thumbnail generation */}
+      <Modal show={scanning() || generatingThumbs()} closeOnOverlayClick={false}>
+        <div style="text-align: center;">
+          {!thumbProgress() && (
+            <div style="margin-bottom: 16px; color: #e0e0e0; font-size: 14px;">
+              {scanProgress()}
+            </div>
+          )}
+
+          <Show when={thumbProgress()}>
+            <ProgressBar
+              current={thumbProgress()!.current}
+              total={thumbProgress()!.total}
+              message={thumbProgress()!.message}
+              showPercentage={true}
+            />
+          </Show>
+
+          {!thumbProgress() && (
+            <div style="margin-top: 12px; font-size: 0.9em; color: #888;">
+              This may take a moment...
+            </div>
+          )}
+        </div>
+      </Modal>
+
       <div class="browser-header">
         <h3>Project</h3>
         <button class="btn-icon" title="Project Settings">⚙</button>
@@ -140,46 +220,51 @@ const ProjectBrowser: Component<ProjectBrowserProps> = (props) => {
         {activeTab() === 'files' && (
           <div class="files-panel">
             <div class="section-header">
-              <h4>Root Paths</h4>
+              <h4>Scanned Folders</h4>
               <button
                 class="btn-add"
-                title="Add Root"
+                title="Scan Folder"
                 onClick={handleScanDirectory}
                 disabled={!props.dbInitialized || scanning()}
               >
                 +
               </button>
             </div>
-            <div class="root-list">
-              {scanning() || generatingThumbs() ? (
-                <div class="placeholder-text">
-                  <div>{scanProgress()}</div>
-                  {thumbProgress() && (
-                    <div style="margin-top: 8px;">
-                      <div style="width: 100%; height: 4px; background: #333; border-radius: 2px; overflow: hidden;">
-                        <div
-                          style={{
-                            width: `${(thumbProgress()!.current / thumbProgress()!.total) * 100}%`,
-                            height: '100%',
-                            background: '#4a90e2',
-                            transition: 'width 0.2s ease',
-                          }}
-                        />
+            <div class="folder-list">
+              <Show
+                when={props.folders.length > 0}
+                fallback={
+                  <div class="placeholder-text">
+                    No folders scanned yet. Click + to scan a directory.
+                  </div>
+                }
+              >
+                <For each={props.folders}>
+                  {(folder) => (
+                    <div
+                      class="folder-item"
+                      classList={{ active: folder.id === props.currentFolderId }}
+                      onClick={() => props.onFolderSelect(folder.id)}
+                      title={folder.path}
+                    >
+                      <div class="folder-icon">📁</div>
+                      <div class="folder-info">
+                        <div class="folder-name">{folder.name}</div>
+                        <div class="folder-stats">{folder.asset_count} assets</div>
                       </div>
-                      <div style="margin-top: 4px; font-size: 0.85em; color: #888;">
-                        {thumbProgress()!.current} / {thumbProgress()!.total}
-                      </div>
+
+                      {/* Delete button - shown on hover */}
+                      <button
+                        class="btn-delete-folder"
+                        onClick={(e) => handleDeleteFolder(folder.id, folder.name, e)}
+                        title="Delete folder"
+                      >
+                        🗑
+                      </button>
                     </div>
                   )}
-                  <div style="margin-top: 8px; font-size: 0.9em; color: #666;">
-                    This may take a moment...
-                  </div>
-                </div>
-              ) : (
-                <div class="placeholder-text">
-                  Click + to scan a directory for images
-                </div>
-              )}
+                </For>
+              </Show>
             </div>
           </div>
         )}

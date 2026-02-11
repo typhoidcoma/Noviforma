@@ -1,18 +1,33 @@
 import { Component, createSignal, onMount } from 'solid-js';
 import GridViewport from './components/GridViewport';
-import StressControls from './components/StressControls';
+import GridControls from './components/GridControls';
 import ProjectBrowser from './components/ProjectBrowser';
 import Inspector from './components/Inspector';
-import { dbInit, dbGetAllAssets, dbCountAssets, type Asset } from './lib/database';
+import {
+  dbInit,
+  dbGetAllAssets,
+  dbCountAssets,
+  dbGetAllFolders,
+  dbGetCurrentFolder,
+  dbSetCurrentFolder,
+  dbGetAssetsByFolder,
+  type Asset,
+  type Folder
+} from './lib/database';
 import './App.css';
 
 const App: Component = () => {
-  const [totalItems, setTotalItems] = createSignal(0);
   const [tileSize, setTileSize] = createSignal(128);
+  const [gutter, setGutter] = createSignal(8); // Grid spacing (default 8px)
   const [selectedAssets, setSelectedAssets] = createSignal<number[]>([]);
   const [assets, setAssets] = createSignal<Asset[]>([]);
+  const [folders, setFolders] = createSignal<Folder[]>([]);
+  const [currentFolderId, setCurrentFolderId] = createSignal<number | null>(null);
   const [dbInitialized, setDbInitialized] = createSignal(false);
   const [dbPath, setDbPath] = createSignal('');
+
+  // Computed: total items always equals actual asset count
+  const totalItems = () => assets().length;
 
   // Initialize database on mount
   onMount(async () => {
@@ -29,8 +44,15 @@ const App: Component = () => {
 
       setDbInitialized(true);
 
-      // Load assets
-      await loadAssets();
+      // Load folders
+      await loadFolders();
+
+      // Load current folder if set
+      const current = await dbGetCurrentFolder();
+      if (current) {
+        setCurrentFolderId(current);
+        await loadAssetsForFolder(current);
+      }
     } catch (error) {
       console.error('Failed to initialize database:', error);
       alert(`Database initialization failed: ${error}\n\nCheck the console for details.`);
@@ -39,21 +61,57 @@ const App: Component = () => {
     }
   });
 
-  // Load assets from database
+  // Load assets from database (all assets)
   const loadAssets = async () => {
     try {
       const allAssets = await dbGetAllAssets();
       setAssets(allAssets);
-      setTotalItems(allAssets.length);
       console.log(`Loaded ${allAssets.length} assets from database`);
     } catch (error) {
       console.error('Failed to load assets:', error);
     }
   };
 
+  // Load folders from database
+  const loadFolders = async () => {
+    try {
+      const allFolders = await dbGetAllFolders();
+      setFolders(allFolders);
+      console.log(`Loaded ${allFolders.length} folders from database`);
+    } catch (error) {
+      console.error('Failed to load folders:', error);
+    }
+  };
+
+  // Load assets for a specific folder
+  const loadAssetsForFolder = async (folderId: number) => {
+    try {
+      const folderAssets = await dbGetAssetsByFolder(folderId);
+      setAssets(folderAssets);
+      console.log(`Loaded ${folderAssets.length} assets from folder ${folderId}`);
+    } catch (error) {
+      console.error('Failed to load assets for folder:', error);
+    }
+  };
+
+  // Handle folder selection change
+  const handleFolderChange = async (folderId: number) => {
+    await dbSetCurrentFolder(folderId);
+    setCurrentFolderId(folderId);
+    await loadAssetsForFolder(folderId);
+  };
+
   // Refresh assets after scanning
   const handleAssetsUpdated = async () => {
-    await loadAssets();
+    await loadFolders(); // Refresh folder list
+
+    const current = await dbGetCurrentFolder();
+    if (current) {
+      setCurrentFolderId(current);
+      await loadAssetsForFolder(current);
+    } else {
+      await loadAssets(); // Fallback to all assets
+    }
   };
 
   return (
@@ -61,15 +119,18 @@ const App: Component = () => {
       <aside class="left-panel">
         <ProjectBrowser
           dbInitialized={dbInitialized()}
+          folders={folders()}
+          currentFolderId={currentFolderId()}
+          onFolderSelect={handleFolderChange}
           onAssetsUpdated={handleAssetsUpdated}
         />
 
         <div class="controls-section">
-          <StressControls
-            totalItems={totalItems()}
+          <GridControls
             tileSize={tileSize()}
-            onTotalItemsChange={setTotalItems}
+            gutter={gutter()}
             onTileSizeChange={setTileSize}
+            onGutterChange={setGutter}
           />
         </div>
       </aside>
@@ -93,6 +154,7 @@ const App: Component = () => {
               assets={assets()}
               totalItems={totalItems()}
               tileSize={tileSize()}
+              gutter={gutter()}
               selectedAssets={selectedAssets()}
               onSelectionChange={setSelectedAssets}
             />

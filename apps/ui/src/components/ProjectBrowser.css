@@ -110,8 +110,80 @@
 }
 
 /* Files Panel */
-.root-list {
+.root-list,
+.folder-list {
   margin-top: 8px;
+}
+
+.folder-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px;
+  background: #222;
+  border: 1px solid #333;
+  border-radius: 4px;
+  margin-bottom: 8px;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.folder-item:hover {
+  background: #282828;
+  border-color: #444;
+}
+
+.folder-item.active {
+  background: #2a3a4a;
+  border-color: #4a90e2;
+}
+
+.folder-icon {
+  font-size: 20px;
+  flex-shrink: 0;
+}
+
+.folder-info {
+  flex: 1;
+  overflow: hidden;
+}
+
+.folder-name {
+  font-size: 13px;
+  font-weight: 500;
+  color: #e0e0e0;
+  margin-bottom: 2px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.folder-stats {
+  font-size: 11px;
+  color: #888;
+  font-family: 'Consolas', monospace;
+}
+
+.btn-delete-folder {
+  opacity: 0;
+  background: none;
+  border: none;
+  color: #666;
+  font-size: 14px;
+  cursor: pointer;
+  padding: 4px 8px;
+  border-radius: 3px;
+  transition: all 0.2s;
+  margin-left: auto;
+}
+
+.folder-item:hover .btn-delete-folder {
+  opacity: 1;
+}
+
+.btn-delete-folder:hover {
+  background: #3a1a1a;
+  color: #e74c3c;
 }
 
 .root-item {

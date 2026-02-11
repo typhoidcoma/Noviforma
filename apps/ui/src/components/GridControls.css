@@ -1,0 +1,69 @@
+.grid-controls {
+  padding: 16px;
+}
+
+.grid-controls h3 {
+  margin-bottom: 16px;
+  font-size: 14px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: #888;
+}
+
+.control-group {
+  margin-bottom: 20px;
+}
+
+.control-group label {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 8px;
+  font-size: 13px;
+}
+
+.control-label {
+  color: #ccc;
+  font-weight: 500;
+}
+
+.control-value {
+  color: #4a9eff;
+  font-family: 'Consolas', 'Monaco', monospace;
+  font-size: 12px;
+}
+
+.control-group input[type="range"] {
+  width: 100%;
+  height: 4px;
+  background: #3a3a3a;
+  outline: none;
+  border-radius: 2px;
+  -webkit-appearance: none;
+}
+
+.control-group input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 14px;
+  height: 14px;
+  background: #4a9eff;
+  cursor: pointer;
+  border-radius: 50%;
+}
+
+.control-group input[type="range"]::-moz-range-thumb {
+  width: 14px;
+  height: 14px;
+  background: #4a9eff;
+  cursor: pointer;
+  border-radius: 50%;
+  border: none;
+}
+
+.control-hint {
+  margin-top: 4px;
+  font-size: 11px;
+  color: #666;
+}

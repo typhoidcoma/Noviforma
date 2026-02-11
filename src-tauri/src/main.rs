@@ -22,6 +22,26 @@ fn main() {
             commands::database::db_count_assets,
             commands::database::db_get_thumbnail_path,
             commands::database::db_clear_all_assets,
+            // Tag commands
+            commands::database::db_create_tag,
+            commands::database::db_get_all_tags,
+            commands::database::db_delete_tag,
+            commands::database::db_add_tag_to_asset,
+            commands::database::db_remove_tag_from_asset,
+            commands::database::db_get_asset_tags,
+            // Note commands
+            commands::database::db_set_asset_note,
+            commands::database::db_get_asset_note,
+            // Rating commands
+            commands::database::db_set_asset_rating,
+            commands::database::db_get_asset_rating,
+            // Folder commands
+            commands::database::db_get_all_folders,
+            commands::database::db_get_folder,
+            commands::database::db_set_current_folder,
+            commands::database::db_get_current_folder,
+            commands::database::db_get_assets_by_folder,
+            commands::database::db_delete_folder,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

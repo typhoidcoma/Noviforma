@@ -11,6 +11,7 @@ interface GridViewportProps {
   assets: Asset[];
   totalItems: number;
   tileSize: number;
+  gutter: number;
   selectedAssets: number[];
   onSelectionChange: (selectedIds: number[]) => void;
 }
@@ -42,7 +43,6 @@ const GridViewport: Component<GridViewportProps> = (props) => {
   const [isDragging, setIsDragging] = createSignal(false);
   const [dragStart, setDragStart] = createSignal({ x: 0, y: 0 });
 
-  const gutter = 8; // Gap between tiles
   let rafId: number | null = null;
   let pendingUpdate = false;
   let loadingInProgress = false;
@@ -54,7 +54,7 @@ const GridViewport: Component<GridViewportProps> = (props) => {
   const contentHeight = () => calculateContentHeight(
     props.totalItems,
     props.tileSize,
-    gutter,
+    props.gutter,
     viewportWidth()
   );
 
@@ -70,7 +70,7 @@ const GridViewport: Component<GridViewportProps> = (props) => {
         const tiles = calculateVisibleTiles({
           totalItems: props.totalItems,
           tileSize: props.tileSize,
-          gutter,
+          gutter: props.gutter,
           viewportWidth: viewportWidth(),
           viewportHeight: viewportHeight(),
           scrollTop: scrollTop(),
@@ -79,6 +79,12 @@ const GridViewport: Component<GridViewportProps> = (props) => {
 
         setVisibleTileCount(tiles.length);
         setVisibleTiles(tiles); // Store for label overlay
+
+        // Mark visible textures as recently used (prevents eviction)
+        const visibleAssetIds = tiles
+          .map(t => props.assets[t.id]?.id)
+          .filter((id): id is number => id !== undefined);
+        renderer!.markVisibleTextures(visibleAssetIds);
 
         // Convert to TileInstance with texture indices
         const tileInstances: TileInstance[] = tiles.map(t => {
@@ -210,8 +216,8 @@ const GridViewport: Component<GridViewportProps> = (props) => {
     const x = clientX - rect.left + scrollLeft();
     const y = clientY - rect.top + scrollTop();
 
-    const tileSizeWithGutter = props.tileSize + gutter;
-    const cols = Math.max(1, Math.floor((viewportWidth() + gutter) / tileSizeWithGutter));
+    const tileSizeWithGutter = props.tileSize + props.gutter;
+    const cols = Math.max(1, Math.floor((viewportWidth() + props.gutter) / tileSizeWithGutter));
 
     if (cols === 0) return null;
 
@@ -561,7 +567,7 @@ const GridViewport: Component<GridViewportProps> = (props) => {
 
   // React to prop changes
   createEffect(() => {
-    const _ = props.totalItems + props.tileSize;
+    const _ = props.totalItems + props.tileSize + props.gutter;
     scheduleUpdate();
   });
 
@@ -593,7 +599,7 @@ const GridViewport: Component<GridViewportProps> = (props) => {
 
             try {
               const thumbnailUrl = getThumbnailUrl(asset.thumbnail_path);
-              const textureIndex = await renderer!.loadTexture(thumbnailUrl);
+              const textureIndex = await renderer!.loadTexture(asset.id, thumbnailUrl);
 
               if (textureIndex >= 0) {
                 assetTextureMap.set(asset.id, textureIndex);
@@ -654,8 +660,6 @@ const GridViewport: Component<GridViewportProps> = (props) => {
 
           <div class="grid-scroller" ref={scrollerRef} onScroll={handleScroll}>
             <div class="grid-content" style={{ height: `${contentHeight()}px` }} onClick={handleClick}>
-              <canvas id="gpu-grid-canvas" ref={canvasRef} />
-
               {/* Filename labels overlay */}
               <div class="tile-labels-overlay">
                 <For each={visibleTiles()}>
@@ -685,6 +689,21 @@ const GridViewport: Component<GridViewportProps> = (props) => {
                 </For>
               </div>
             </div>
+
+            {/* Canvas as sibling to grid-content, not child */}
+            <canvas
+              id="gpu-grid-canvas"
+              ref={canvasRef}
+              style={{
+                position: 'absolute',
+                top: 0,
+                left: 0,
+                width: '100%',
+                height: '100%',
+                'pointer-events': 'none',
+                'z-index': 1
+              }}
+            />
           </div>
         </>
       ) : (

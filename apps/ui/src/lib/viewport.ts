@@ -70,9 +70,13 @@ export function calculateVisibleTiles(config: GridConfig): TileRect[] {
  * Calculate total content height for scrolling
  */
 export function calculateContentHeight(totalItems: number, tileSize: number, gutter: number, viewportWidth: number): number {
+  if (totalItems === 0) return 0;
+
   const effectiveTileWidth = tileSize + gutter;
   const cols = Math.max(1, Math.floor((viewportWidth + gutter) / effectiveTileWidth));
   const rows = Math.ceil(totalItems / cols);
   const effectiveTileHeight = tileSize + gutter;
-  return rows * effectiveTileHeight;
+
+  // Last row doesn't need trailing gutter, so: (rows - 1) * effectiveTileHeight + tileSize
+  return (rows - 1) * effectiveTileHeight + tileSize;
 }

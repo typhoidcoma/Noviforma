@@ -6,11 +6,11 @@ use walkdir::WalkDir;
 const IMAGE_EXTENSIONS: &[&str] = &["jpg", "jpeg", "png", "webp", "bmp", "tiff", "tif"];
 
 /// Scan a directory recursively for image files
-pub fn scan_directory<P: AsRef<Path>>(root_path: P) -> Vec<Asset> {
+pub fn scan_directory<P: AsRef<Path>>(root_path: P, folder_id: i64) -> Vec<Asset> {
     let root_path = root_path.as_ref();
     let mut assets = Vec::new();
 
-    tracing::info!("Scanning directory: {}", root_path.display());
+    tracing::info!("Scanning directory: {} (folder_id: {})", root_path.display(), folder_id);
 
     for entry in WalkDir::new(root_path)
         .follow_links(false)
@@ -30,14 +30,15 @@ pub fn scan_directory<P: AsRef<Path>>(root_path: P) -> Vec<Asset> {
                 // Get file size
                 if let Ok(metadata) = entry.metadata() {
                     let path_str = path.to_string_lossy().to_string();
-                    let asset = Asset::new(path_str, metadata.len() as i64);
+                    let mut asset = Asset::new(path_str, metadata.len() as i64);
+                    asset.folder_id = folder_id;  // Assign folder ID
                     assets.push(asset);
                 }
             }
         }
     }
 
-    tracing::info!("Found {} image files", assets.len());
+    tracing::info!("Found {} image files in folder {}", assets.len(), folder_id);
     assets
 }
 
@@ -48,7 +49,7 @@ mod tests {
     #[test]
     fn test_scan_empty_directory() {
         let temp_dir = tempfile::tempdir().unwrap();
-        let assets = scan_directory(temp_dir.path());
+        let assets = scan_directory(temp_dir.path(), 0);
         assert_eq!(assets.len(), 0);
     }
 }

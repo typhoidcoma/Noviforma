@@ -37,6 +37,175 @@ const QUAD_VERTICES = new Float32Array([
   0.0, 1.0,  // top-left
 ]);
 
+interface TextureCacheEntry {
+  slot: number;
+  url: string;
+  lastUsed: number;
+  assetId: number;
+}
+
+/**
+ * LRU texture cache for managing limited GPU texture slots
+ */
+class TextureCache {
+  private entries = new Map<number, TextureCacheEntry>(); // assetId -> entry
+  private slotUsage = new Map<number, number>(); // slot -> assetId
+  private freeSlots: number[] = [];
+  private maxSlots: number;
+  private device: GPUDevice;
+  private textureArray: GPUTexture;
+
+  constructor(maxSlots: number, device: GPUDevice, textureArray: GPUTexture) {
+    this.maxSlots = maxSlots;
+    this.device = device;
+    this.textureArray = textureArray;
+    // Initialize free slots
+    for (let i = 0; i < maxSlots; i++) {
+      this.freeSlots.push(i);
+    }
+  }
+
+  /**
+   * Get texture slot for an asset (if loaded)
+   */
+  getSlot(assetId: number): number | undefined {
+    const entry = this.entries.get(assetId);
+    if (entry) {
+      // Update last used timestamp
+      entry.lastUsed = Date.now();
+      return entry.slot;
+    }
+    return undefined;
+  }
+
+  /**
+   * Allocate a slot for a new texture
+   * Evicts LRU texture if no free slots available
+   */
+  allocateSlot(assetId: number, url: string): number {
+    // Check if already allocated
+    const existing = this.entries.get(assetId);
+    if (existing) {
+      existing.lastUsed = Date.now();
+      return existing.slot;
+    }
+
+    // Get free slot or evict LRU
+    let slot: number;
+    if (this.freeSlots.length > 0) {
+      slot = this.freeSlots.pop()!;
+    } else {
+      slot = this.evictLRU()!;
+    }
+
+    // Create new entry
+    const entry: TextureCacheEntry = {
+      slot,
+      url,
+      lastUsed: Date.now(),
+      assetId,
+    };
+
+    this.entries.set(assetId, entry);
+    this.slotUsage.set(slot, assetId);
+
+    return slot;
+  }
+
+  /**
+   * Find and evict the least recently used texture
+   */
+  private evictLRU(): number | null {
+    if (this.entries.size === 0) {
+      return null;
+    }
+
+    // Find LRU entry
+    let oldestEntry: TextureCacheEntry | null = null;
+    let oldestAssetId = -1;
+
+    for (const [assetId, entry] of this.entries) {
+      if (!oldestEntry || entry.lastUsed < oldestEntry.lastUsed) {
+        oldestEntry = entry;
+        oldestAssetId = assetId;
+      }
+    }
+
+    if (!oldestEntry) {
+      return null;
+    }
+
+    const slot = oldestEntry.slot;
+    console.log(`Evicting texture: assetId=${oldestAssetId}, slot=${slot}, url=${oldestEntry.url}`);
+
+    // Clear the texture slot
+    this.clearTextureSlot(slot);
+
+    // Remove from maps
+    this.entries.delete(oldestAssetId);
+    this.slotUsage.delete(slot);
+
+    return slot;
+  }
+
+  /**
+   * Clear a texture slot by uploading transparent data
+   */
+  private clearTextureSlot(slot: number): void {
+    const clearData = new Uint8Array(256 * 256 * 4).fill(0);
+    this.device.queue.writeTexture(
+      { texture: this.textureArray, origin: [0, 0, slot] },
+      clearData,
+      { bytesPerRow: 256 * 4, rowsPerImage: 256 },
+      [256, 256, 1]
+    );
+  }
+
+  /**
+   * Mark textures as recently used (prevents eviction)
+   */
+  markUsed(assetIds: number[]): void {
+    const now = Date.now();
+    for (const assetId of assetIds) {
+      const entry = this.entries.get(assetId);
+      if (entry) {
+        entry.lastUsed = now;
+      }
+    }
+  }
+
+  /**
+   * Get URL for an asset (if cached)
+   */
+  getUrl(assetId: number): string | undefined {
+    return this.entries.get(assetId)?.url;
+  }
+
+  /**
+   * Clear all textures
+   */
+  clear(): void {
+    this.entries.clear();
+    this.slotUsage.clear();
+    this.freeSlots = [];
+    for (let i = 0; i < this.maxSlots; i++) {
+      this.freeSlots.push(i);
+    }
+  }
+
+  /**
+   * Get cache statistics
+   */
+  getStats() {
+    return {
+      used: this.entries.size,
+      free: this.freeSlots.length,
+      total: this.maxSlots,
+      utilization: (this.entries.size / this.maxSlots) * 100,
+    };
+  }
+}
+
 /**
  * WebGPU renderer for grid of image thumbnails and fullscreen viewer
  */
@@ -65,8 +234,7 @@ export class WebGPURenderer {
   private textureView!: GPUTextureView;
   private sampler!: GPUSampler;
   private textureArraySize = 256; // Max textures (GPU limitation)
-  private nextTextureSlot = 0;
-  private textureMap = new Map<string, number>(); // URL -> texture index
+  private textureCache: TextureCache;
 
   // State
   private tiles: TileInstance[] = [];
@@ -120,6 +288,9 @@ export class WebGPURenderer {
     this.createBuffers();
     this.createTextures();
     await this.createPipelines();
+
+    // Initialize texture cache
+    this.textureCache = new TextureCache(this.textureArraySize, this.device, this.textureArray);
 
     console.log('WebGPU renderer initialized successfully');
   }
@@ -364,18 +535,13 @@ export class WebGPURenderer {
   }
 
   /**
-   * Load a texture from URL
+   * Load a texture from URL with LRU caching
    */
-  async loadTexture(imageUrl: string): Promise<number> {
-    // Check if already loaded
-    if (this.textureMap.has(imageUrl)) {
-      return this.textureMap.get(imageUrl)!;
-    }
-
-    // Check if we have space
-    if (this.nextTextureSlot >= this.textureArraySize) {
-      console.warn('Texture array full, cannot load more textures');
-      return -1;
+  async loadTexture(assetId: number, imageUrl: string): Promise<number> {
+    // Check if already loaded in cache
+    const cachedSlot = this.textureCache.getSlot(assetId);
+    if (cachedSlot !== undefined) {
+      return cachedSlot;
     }
 
     try {
@@ -411,11 +577,13 @@ export class WebGPURenderer {
         resizeQuality: 'high',
       });
 
+      // Allocate slot (may evict LRU texture if full)
+      const textureSlot = this.textureCache.allocateSlot(assetId, imageUrl);
+
       // Copy to texture array with correct dimensions
-      const textureIndex = this.nextTextureSlot++;
       this.device.queue.copyExternalImageToTexture(
         { source: imageBitmap },
-        { texture: this.textureArray, origin: [0, 0, textureIndex] },
+        { texture: this.textureArray, origin: [0, 0, textureSlot] },
         { width, height, depthOrArrayLayers: 1 }
       );
 
@@ -423,10 +591,7 @@ export class WebGPURenderer {
       URL.revokeObjectURL(objectUrl);
       imageBitmap.close();
 
-      // Store mapping
-      this.textureMap.set(imageUrl, textureIndex);
-
-      return textureIndex;
+      return textureSlot;
     } catch (error) {
       console.error('Failed to load texture:', imageUrl, error);
       return -1;
@@ -436,9 +601,16 @@ export class WebGPURenderer {
   /**
    * Load multiple textures in parallel
    */
-  async loadTexturesBatch(urls: string[]): Promise<number[]> {
-    const promises = urls.map(url => this.loadTexture(url));
+  async loadTexturesBatch(assets: Array<{ id: number; url: string }>): Promise<number[]> {
+    const promises = assets.map(asset => this.loadTexture(asset.id, asset.url));
     return await Promise.all(promises);
+  }
+
+  /**
+   * Mark visible textures as recently used (prevents eviction)
+   */
+  markVisibleTextures(assetIds: number[]): void {
+    this.textureCache.markUsed(assetIds);
   }
 
   /**
@@ -545,17 +717,23 @@ export class WebGPURenderer {
   }
 
   /**
-   * Get texture index for a URL (if already loaded)
+   * Get texture index for an asset (if already loaded)
    */
-  getTextureIndex(url: string): number | undefined {
-    return this.textureMap.get(url);
+  getTextureIndex(assetId: number): number | undefined {
+    return this.textureCache.getSlot(assetId);
   }
 
   /**
    * Clear all textures
    */
   clearTextures(): void {
-    this.textureMap.clear();
-    this.nextTextureSlot = 0;
+    this.textureCache.clear();
+  }
+
+  /**
+   * Get cache statistics
+   */
+  getCacheStats() {
+    return this.textureCache.getStats();
   }
 }
