@@ -1,7 +1,8 @@
 use crate::database_state::{DatabaseState, ScanResult, ThumbnailResult};
 use noviforma_core::{Asset, Tag, Note, Rating, Folder};
 use std::path::PathBuf;
-use tauri::{AppHandle, Emitter, State};
+use std::sync::atomic::Ordering;
+use tauri::State;
 
 #[tauri::command]
 pub fn db_init(
@@ -24,63 +25,38 @@ pub fn db_scan_directory(
     state.scan_directory(dir_path)
 }
 
-#[derive(Clone, serde::Serialize)]
-struct ThumbnailProgress {
-    current: usize,
-    total: usize,
-    message: String,
+/// Poll current thumbnail generation progress (called from frontend via setInterval)
+#[derive(serde::Serialize)]
+pub struct ProgressInfo {
+    pub current: usize,
+    pub total: usize,
+}
+
+#[tauri::command]
+pub fn db_get_thumbnail_progress(
+    state: State<'_, DatabaseState>,
+) -> ProgressInfo {
+    ProgressInfo {
+        current: state.progress_current.load(Ordering::Relaxed),
+        total: state.progress_total.load(Ordering::Relaxed),
+    }
 }
 
 #[tauri::command]
 pub async fn db_generate_thumbnails(
-    app: AppHandle,
     state: State<'_, DatabaseState>,
 ) -> Result<ThumbnailResult, String> {
     tracing::info!("Generating thumbnails (async)");
 
-    // Get all assets that need thumbnails
-    let assets = state.get_all_assets()?;
-    let total = assets.len();
-
-    // Emit initial progress
-    let _ = app.emit(
-        "thumbnail-progress",
-        ThumbnailProgress {
-            current: 0,
-            total,
-            message: format!("Starting thumbnail generation for {} assets...", total),
-        },
-    );
-
-    // Spawn blocking task to generate thumbnails
     let state_clone = state.inner().clone();
-    let app_clone = app.clone();
 
     let result = tauri::async_runtime::spawn_blocking(move || {
-        state_clone.generate_thumbnails_with_progress(|current, total, message| {
-            // Emit progress update
-            let _ = app_clone.emit(
-                "thumbnail-progress",
-                ThumbnailProgress {
-                    current,
-                    total,
-                    message: message.to_string(),
-                },
-            );
+        state_clone.generate_thumbnails_with_progress(|_, _, _| {
+            // Progress is tracked via shared atomic counters, polled by frontend
         })
     })
     .await
     .map_err(|e| format!("Task join error: {}", e))??;
-
-    // Emit completion
-    let _ = app.emit(
-        "thumbnail-progress",
-        ThumbnailProgress {
-            current: total,
-            total,
-            message: "Thumbnail generation complete".to_string(),
-        },
-    );
 
     Ok(result)
 }

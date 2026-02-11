@@ -52,11 +52,13 @@ class TextureCache {
   private slotUsage = new Map<number, number>(); // slot -> assetId
   private freeSlots: number[] = [];
   private maxSlots: number;
+  private textureSize: number;
   private device: GPUDevice;
   private textureArray: GPUTexture;
 
-  constructor(maxSlots: number, device: GPUDevice, textureArray: GPUTexture) {
+  constructor(maxSlots: number, textureSize: number, device: GPUDevice, textureArray: GPUTexture) {
     this.maxSlots = maxSlots;
+    this.textureSize = textureSize;
     this.device = device;
     this.textureArray = textureArray;
     // Initialize free slots
@@ -152,12 +154,13 @@ class TextureCache {
    * Clear a texture slot by uploading transparent data
    */
   private clearTextureSlot(slot: number): void {
-    const clearData = new Uint8Array(256 * 256 * 4).fill(0);
+    const size = this.textureSize;
+    const clearData = new Uint8Array(size * size * 4).fill(0);
     this.device.queue.writeTexture(
       { texture: this.textureArray, origin: [0, 0, slot] },
       clearData,
-      { bytesPerRow: 256 * 4, rowsPerImage: 256 },
-      [256, 256, 1]
+      { bytesPerRow: size * 4, rowsPerImage: size },
+      [size, size, 1]
     );
   }
 
@@ -235,7 +238,13 @@ export class WebGPURenderer {
   private textureView!: GPUTextureView;
   private sampler!: GPUSampler;
   private textureArraySize = 256; // Max textures (GPU limitation)
-  private textureCache: TextureCache;
+  private textureCache!: TextureCache;
+
+  // High-res texture management
+  private hiresTextureArray!: GPUTexture;
+  private hiresTextureView!: GPUTextureView;
+  private hiresTextureArraySize = 16;
+  private hiresTextureCache!: TextureCache;
 
   // State
   private tiles: TileInstance[] = [];
@@ -290,8 +299,9 @@ export class WebGPURenderer {
     this.createTextures();
     await this.createPipelines();
 
-    // Initialize texture cache
-    this.textureCache = new TextureCache(this.textureArraySize, this.device, this.textureArray);
+    // Initialize texture caches
+    this.textureCache = new TextureCache(this.textureArraySize, 256, this.device, this.textureArray);
+    this.hiresTextureCache = new TextureCache(this.hiresTextureArraySize, 2048, this.device, this.hiresTextureArray);
 
     console.log('WebGPU renderer initialized successfully');
   }
@@ -362,6 +372,23 @@ export class WebGPURenderer {
       dimension: '2d-array',
     });
 
+    // Create high-res 2D texture array for zoomed-in tiles
+    this.hiresTextureArray = this.device.createTexture({
+      label: 'HiRes Texture Array',
+      size: {
+        width: 2048,
+        height: 2048,
+        depthOrArrayLayers: this.hiresTextureArraySize,
+      },
+      format: 'rgba8unorm',
+      usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST | GPUTextureUsage.RENDER_ATTACHMENT,
+      dimension: '2d',
+    });
+
+    this.hiresTextureView = this.hiresTextureArray.createView({
+      dimension: '2d-array',
+    });
+
     // Create sampler for texture filtering
     this.sampler = this.device.createSampler({
       label: 'Texture Sampler',
@@ -416,6 +443,12 @@ export class WebGPURenderer {
           visibility: GPUShaderStage.VERTEX,
           buffer: { type: 'uniform' },
         },
+        // Binding 4: High-res texture array
+        {
+          binding: 4,
+          visibility: GPUShaderStage.FRAGMENT,
+          texture: { sampleType: 'float', viewDimension: '2d-array' },
+        },
       ],
     });
 
@@ -428,6 +461,7 @@ export class WebGPURenderer {
         { binding: 1, resource: this.sampler },
         { binding: 2, resource: this.textureView },
         { binding: 3, resource: { buffer: this.transformBuffer } },
+        { binding: 4, resource: this.hiresTextureView },
       ],
     });
 
@@ -642,6 +676,70 @@ export class WebGPURenderer {
    */
   getCurrentTextureSlot(assetId: number): number {
     return this.textureCache.getSlot(assetId) ?? -1;
+  }
+
+  /**
+   * Load a high-resolution texture from original image URL
+   */
+  async loadHiresTexture(assetId: number, imageUrl: string): Promise<number> {
+    const cachedSlot = this.hiresTextureCache.getSlot(assetId);
+    if (cachedSlot !== undefined) return cachedSlot;
+
+    try {
+      // Load via Image element (handles Tauri asset protocol MIME types correctly)
+      const img = new Image();
+      img.crossOrigin = 'anonymous';
+      img.src = imageUrl;
+      await img.decode();
+
+      const maxSize = 2048;
+      const aspectRatio = img.width / img.height;
+      let width, height;
+
+      if (aspectRatio > 1) {
+        width = Math.min(maxSize, img.width);
+        height = Math.round(width / aspectRatio);
+      } else {
+        height = Math.min(maxSize, img.height);
+        width = Math.round(height * aspectRatio);
+      }
+
+      // Use img element as source (avoids blob MIME type issues with Tauri asset protocol)
+      const imageBitmap = await createImageBitmap(img, {
+        resizeWidth: width,
+        resizeHeight: height,
+        resizeQuality: 'high',
+      });
+
+      const slot = this.hiresTextureCache.allocateSlot(assetId, imageUrl);
+
+      this.device.queue.copyExternalImageToTexture(
+        { source: imageBitmap },
+        { texture: this.hiresTextureArray, origin: [0, 0, slot] },
+        { width, height, depthOrArrayLayers: 1 }
+      );
+
+      imageBitmap.close();
+
+      return slot;
+    } catch (error) {
+      console.error('Failed to load hires texture:', imageUrl, error);
+      return -1;
+    }
+  }
+
+  /**
+   * Get current high-res texture slot for asset
+   */
+  getHiresTextureSlot(assetId: number): number {
+    return this.hiresTextureCache.getSlot(assetId) ?? -1;
+  }
+
+  /**
+   * Mark visible high-res textures as recently used
+   */
+  markVisibleHiresTextures(assetIds: number[]): void {
+    this.hiresTextureCache.markUsed(assetIds);
   }
 
   /**

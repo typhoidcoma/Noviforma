@@ -1,7 +1,5 @@
 import { Component, createSignal, createEffect, For, onCleanup, Show } from 'solid-js';
-import { dbScanDirectory, dbGenerateThumbnails, dbGetFolder, dbDeleteFolder, type Folder } from '../lib/database';
-import { listen } from '@tauri-apps/api/event';
-import { ProgressBar } from './ProgressBar';
+import { dbScanDirectory, dbGenerateThumbnails, dbDeleteFolder, dbGetThumbnailProgress, type Folder } from '../lib/database';
 import { Modal } from './Modal';
 import './ProjectBrowser.css';
 
@@ -13,40 +11,59 @@ interface ProjectBrowserProps {
   onAssetsUpdated: () => void;
 }
 
-interface ThumbnailProgress {
-  current: number;
-  total: number;
-  message: string;
-}
-
 const ProjectBrowser: Component<ProjectBrowserProps> = (props) => {
   const [activeTab, setActiveTab] = createSignal<'files' | 'tags' | 'shots'>('files');
   const [scanning, setScanning] = createSignal(false);
   const [generatingThumbs, setGeneratingThumbs] = createSignal(false);
-  const [scanProgress, setScanProgress] = createSignal('');
-  const [thumbProgress, setThumbProgress] = createSignal<ThumbnailProgress | null>(null);
+  const [progressCurrent, setProgressCurrent] = createSignal(0);
+  const [progressTotal, setProgressTotal] = createSignal(0);
+  const [scanComplete, setScanComplete] = createSignal<string | null>(null);
+  const [statusText, setStatusText] = createSignal('');
 
-  // Listen for thumbnail progress events
-  const unsubscribe = listen<ThumbnailProgress>('thumbnail-progress', (event) => {
-    setThumbProgress(event.payload);
-    setScanProgress(`${event.payload.message} (${event.payload.current}/${event.payload.total})`);
+  let pollInterval: number | null = null;
+
+  // Start polling progress from backend
+  const startPolling = () => {
+    stopPolling();
+    pollInterval = window.setInterval(async () => {
+      try {
+        const progress = await dbGetThumbnailProgress();
+        setProgressCurrent(progress.current);
+        setProgressTotal(progress.total);
+      } catch {
+        // Ignore polling errors
+      }
+    }, 200);
+  };
+
+  const stopPolling = () => {
+    if (pollInterval !== null) {
+      clearInterval(pollInterval);
+      pollInterval = null;
+    }
+  };
+
+  onCleanup(() => {
+    stopPolling();
   });
 
-  onCleanup(async () => {
-    (await unsubscribe)();
-  });
-
-  // Auto-dismiss modal when thumbnail generation completes
+  // Auto-dismiss modal when scan completes
   createEffect(() => {
-    const progress = thumbProgress();
-    if (progress && progress.current === progress.total) {
-      // Progress complete, clear after short delay to show completion
+    const complete = scanComplete();
+    if (complete) {
       setTimeout(() => {
-        setThumbProgress(null);
         setGeneratingThumbs(false);
-      }, 1500); // 1.5 second delay to show "Complete" message
+        setScanComplete(null);
+      }, 2000);
     }
   });
+
+  // Compute percentage
+  const percentage = () => {
+    const total = progressTotal();
+    if (total === 0) return 0;
+    return Math.round((progressCurrent() / total) * 100);
+  };
 
   const mockTags = [
     { name: 'Approved', count: 45, color: '#6c6' },
@@ -63,7 +80,7 @@ const ProjectBrowser: Component<ProjectBrowserProps> = (props) => {
   ];
 
   const handleDeleteFolder = async (folderId: number, folderName: string, e: MouseEvent) => {
-    e.stopPropagation(); // Prevent folder selection when clicking delete
+    e.stopPropagation();
 
     if (!props.dbInitialized) return;
 
@@ -81,11 +98,7 @@ const ProjectBrowser: Component<ProjectBrowserProps> = (props) => {
     try {
       await dbDeleteFolder(folderId);
       console.log(`Deleted folder ${folderId}: ${folderName}`);
-
-      // Refresh folder list and assets
       await props.onAssetsUpdated();
-
-      alert(`Folder "${folderName}" deleted successfully.`);
     } catch (error) {
       console.error('Failed to delete folder:', error);
       alert(`Failed to delete folder: ${error}`);
@@ -95,65 +108,53 @@ const ProjectBrowser: Component<ProjectBrowserProps> = (props) => {
   const handleScanDirectory = async () => {
     if (!props.dbInitialized || scanning()) return;
 
-    // Clear any previous progress state
-    setThumbProgress(null);
-    setScanProgress('');
+    setScanComplete(null);
+    setProgressCurrent(0);
+    setProgressTotal(0);
 
-    // For now, use a hardcoded path - you can add a file picker later
     const directoryPath = prompt('Enter directory path to scan:');
     if (!directoryPath) return;
 
     setScanning(true);
-    setScanProgress('Scanning directory...');
+    setStatusText('Scanning directory...');
 
     try {
       console.log('Scanning directory:', directoryPath);
       const result = await dbScanDirectory(directoryPath);
       console.log(`Scan complete: ${result.indexed} indexed, ${result.errors} errors`);
 
-      // Generate thumbnails after scanning
+      // Switch to thumbnail generation phase
       setScanning(false);
       setGeneratingThumbs(true);
-      // Backend events will drive progress - don't set manually
-      setScanProgress(`Generating thumbnails for ${result.indexed} assets...`);
+      setStatusText('Generating thumbnails...');
+
+      // Start polling backend for real progress
+      startPolling();
 
       console.log('Generating thumbnails...');
       const thumbResult = await dbGenerateThumbnails();
       console.log(`Thumbnails: ${thumbResult.generated} generated, ${thumbResult.skipped} skipped`);
-      // Don't clear thumbProgress here - let completion event and createEffect handle it
 
-      setScanProgress('Loading assets...');
+      stopPolling();
+
+      // Final poll to get accurate numbers
+      const finalProgress = await dbGetThumbnailProgress();
+      setProgressCurrent(finalProgress.current);
+      setProgressTotal(finalProgress.total);
 
       // Notify parent to reload assets
       await props.onAssetsUpdated();
 
-      // Get current folder info
-      const { dbGetCurrentFolder } = await import('../lib/database');
-      const currentFolderId = await dbGetCurrentFolder();
-      const folder = currentFolderId ? await dbGetFolder(currentFolderId) : null;
+      // Show completion
+      const msg = result.indexed > 0
+        ? `${result.indexed} assets indexed, ${thumbResult.generated} thumbnails generated`
+        : `No new assets found (${thumbResult.skipped} already cached)`;
+      setScanComplete(msg);
 
-      setScanProgress('');
-
-      // Show helpful message based on what was found
-      let message = `Scan complete!\n\n`;
-      if (result.indexed > 0) {
-        message += `📥 ${result.indexed} new assets indexed\n`;
-      } else {
-        message += `✓ No new assets found (folder already scanned)\n`;
-      }
-      message += `🖼️ ${thumbResult.generated} thumbnails generated, ${thumbResult.skipped} skipped\n`;
-      if (folder) {
-        message += `📂 Folder: ${folder.name}\n`;
-        message += `📊 Total assets in folder: ${folder.asset_count}`;
-      }
-
-      alert(message);
     } catch (error) {
       console.error('Scan failed:', error);
+      stopPolling();
       alert(`Scan failed: ${error}`);
-      setScanProgress('');
-      setThumbProgress(null); // Clear progress on error
-    } finally {
       setScanning(false);
       setGeneratingThumbs(false);
     }
@@ -161,29 +162,40 @@ const ProjectBrowser: Component<ProjectBrowserProps> = (props) => {
 
   return (
     <div class="project-browser">
-      {/* Progress Modal - shown during scanning/thumbnail generation */}
+      {/* Progress Modal */}
       <Modal show={scanning() || generatingThumbs()} closeOnOverlayClick={false}>
         <div style="text-align: center;">
-          {!thumbProgress() && (
-            <div style="margin-bottom: 16px; color: #e0e0e0; font-size: 14px;">
-              {scanProgress()}
+          <Show when={scanComplete()}>
+            <div style="color: #6c6; font-size: 16px; margin-bottom: 8px;">
+              Scan complete
             </div>
-          )}
-
-          <Show when={thumbProgress()}>
-            <ProgressBar
-              current={thumbProgress()!.current}
-              total={thumbProgress()!.total}
-              message={thumbProgress()!.message}
-              showPercentage={true}
-            />
+            <div style="color: #ccc; font-size: 13px;">
+              {scanComplete()}
+            </div>
           </Show>
 
-          {!thumbProgress() && (
-            <div style="margin-top: 12px; font-size: 0.9em; color: #888;">
-              This may take a moment...
-            </div>
-          )}
+          <Show when={!scanComplete()}>
+            <Show when={scanning()}>
+              <div style="color: #e0e0e0; font-size: 14px; margin-bottom: 12px;">
+                {statusText()}
+              </div>
+              <div style="font-size: 0.9em; color: #888;">
+                This may take a moment...
+              </div>
+            </Show>
+
+            <Show when={generatingThumbs()}>
+              <div style="color: #e0e0e0; font-size: 14px; margin-bottom: 16px;">
+                Generating thumbnails...
+              </div>
+              <div style="font-size: 36px; font-weight: bold; color: #4a90e2; margin-bottom: 8px;">
+                {percentage()}%
+              </div>
+              <div style="font-size: 13px; color: #888;">
+                {progressCurrent()} / {progressTotal()} assets
+              </div>
+            </Show>
+          </Show>
         </div>
       </Modal>
 
@@ -250,7 +262,6 @@ const ProjectBrowser: Component<ProjectBrowserProps> = (props) => {
                         <div class="folder-stats">{folder.asset_count} assets</div>
                       </div>
 
-                      {/* Delete button - shown on hover */}
                       <button
                         class="btn-delete-folder"
                         onClick={(e) => handleDeleteFolder(folder.id, folder.name, e)}

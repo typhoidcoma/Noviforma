@@ -59,6 +59,18 @@ export async function dbGenerateThumbnails(): Promise<ThumbnailResult> {
   return await invoke('db_generate_thumbnails');
 }
 
+export interface ProgressInfo {
+  current: number;
+  total: number;
+}
+
+/**
+ * Poll current thumbnail generation progress
+ */
+export async function dbGetThumbnailProgress(): Promise<ProgressInfo> {
+  return await invoke('db_get_thumbnail_progress');
+}
+
 /**
  * Get all assets from the database
  */

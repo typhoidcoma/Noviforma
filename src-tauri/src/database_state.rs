@@ -1,5 +1,6 @@
 use noviforma_core::{Asset, Database, ThumbnailGenerator, Tag, Note, Rating, Folder};
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 
 /// Tauri-managed database state
@@ -9,6 +10,9 @@ pub struct DatabaseState {
     thumb_gen: Arc<Mutex<Option<ThumbnailGenerator>>>,
     db_path: Arc<Mutex<Option<PathBuf>>>,
     current_folder_id: Arc<Mutex<Option<i64>>>,
+    // Shared progress counters for thumbnail generation (pollable from frontend)
+    pub progress_current: Arc<AtomicUsize>,
+    pub progress_total: Arc<AtomicUsize>,
 }
 
 impl DatabaseState {
@@ -18,6 +22,8 @@ impl DatabaseState {
             thumb_gen: Arc::new(Mutex::new(None)),
             db_path: Arc::new(Mutex::new(None)),
             current_folder_id: Arc::new(Mutex::new(None)),
+            progress_current: Arc::new(AtomicUsize::new(0)),
+            progress_total: Arc::new(AtomicUsize::new(0)),
         }
     }
 
@@ -126,6 +132,10 @@ impl DatabaseState {
             .map_err(|e| format!("Failed to get assets: {}", e))?;
 
         let total = assets.len();
+        // Set shared progress counters (pollable from frontend)
+        self.progress_total.store(total, Ordering::Relaxed);
+        self.progress_current.store(0, Ordering::Relaxed);
+
         let mut result = ThumbnailResult {
             generated: 0,
             skipped: 0,
@@ -133,14 +143,15 @@ impl DatabaseState {
         };
 
         for (idx, asset) in assets.iter().enumerate() {
-            // Emit progress every 5 items or on first/last (more frequent for smoother updates)
-            if idx % 5 == 0 || idx == total - 1 {
-                progress_callback(
-                    idx + 1,
-                    total,
-                    &format!("Processing {} of {}", idx + 1, total),
-                );
-            }
+            // Update shared atomic counter for polling
+            self.progress_current.store(idx + 1, Ordering::Relaxed);
+
+            // Also call the callback
+            progress_callback(
+                idx + 1,
+                total,
+                &format!("Processing {} of {}", idx + 1, total),
+            );
 
             // Skip if thumbnail already exists
             if thumb_gen.exists(asset.id, &folder.hash) {

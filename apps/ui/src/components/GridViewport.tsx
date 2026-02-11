@@ -1,7 +1,7 @@
 import { Component, createSignal, onMount, onCleanup, createEffect, For } from 'solid-js';
 import { calculateVisibleTiles } from '../lib/viewport';
 import { WebGPURenderer, type TileInstance } from '../lib/webgpu-renderer';
-import { getThumbnailUrl } from '../lib/asset-urls';
+import { getThumbnailUrl, getAssetUrl } from '../lib/asset-urls';
 import type { Asset } from '../lib/database';
 import './GridViewport.css';
 
@@ -61,6 +61,10 @@ const GridViewport: Component<GridViewportProps> = (props) => {
   // Map asset ID to texture index
   const assetTextureMap = new Map<number, number>();
 
+  // High-res texture loading
+  const HIRES_ZOOM_THRESHOLD = 300; // Switch to hires when tile > 300px on screen
+  const hiresLoadingSet = new Set<number>(); // Track in-flight hires loads
+
   // Update visible tiles and render (batched via RAF)
   const scheduleUpdate = () => {
     if (pendingUpdate || !renderer || !rendererReady()) return;
@@ -91,6 +95,14 @@ const GridViewport: Component<GridViewportProps> = (props) => {
           .filter((id): id is number => id !== undefined);
         renderer!.markVisibleTextures(visibleAssetIds);
 
+        // Check if we need high-res textures based on zoom level
+        const tileScreenSize = props.tileSize * gridZoom() * dpr();
+        const needsHires = tileScreenSize > HIRES_ZOOM_THRESHOLD;
+
+        if (needsHires) {
+          renderer!.markVisibleHiresTextures(visibleAssetIds);
+        }
+
         // Convert to TileInstance with texture indices
         const tileInstances: TileInstance[] = tiles.map(t => {
           const asset = props.assets[t.id];
@@ -99,6 +111,25 @@ const GridViewport: Component<GridViewportProps> = (props) => {
 
           if (asset && asset.id) {
             textureIndex = assetTextureMap.get(asset.id) ?? -1;
+
+            // Check for high-res texture when zoomed in
+            if (needsHires && asset.path) {
+              const hiresSlot = renderer!.getHiresTextureSlot(asset.id);
+              if (hiresSlot >= 0) {
+                textureIndex = hiresSlot + 256; // Encode as high-res
+              } else if (!hiresLoadingSet.has(asset.id)) {
+                // Trigger async loading from original file
+                hiresLoadingSet.add(asset.id);
+                const originalUrl = getAssetUrl(asset.path);
+                renderer!.loadHiresTexture(asset.id, originalUrl).then(slot => {
+                  hiresLoadingSet.delete(asset.id);
+                  if (slot >= 0) {
+                    scheduleUpdate(); // Re-render with hires texture
+                  }
+                });
+              }
+              // Fall through to use low-res until hires loads
+            }
 
             // If texture loaded, use white tint; otherwise use fallback color
             if (textureIndex >= 0) {
@@ -633,6 +664,49 @@ const GridViewport: Component<GridViewportProps> = (props) => {
     scheduleUpdate();
   };
 
+  // Focus on the first selected tile (zoom and pan to center it)
+  const focusOnSelectedTile = () => {
+    if (!renderer || props.selectedAssets.length === 0) return;
+
+    const tileId = props.selectedAssets[0];
+    if (tileId < 0 || tileId >= props.totalItems) return;
+
+    // Calculate grid layout
+    const tileSizeWithGutter = (props.tileSize + props.gutter) * dpr();
+    const cols = Math.max(1, Math.floor((viewportWidth() * dpr() + props.gutter * dpr()) / tileSizeWithGutter));
+
+    // Calculate tile position in grid
+    const col = tileId % cols;
+    const row = Math.floor(tileId / cols);
+
+    // Calculate world position of tile center
+    const tileWorldX = col * tileSizeWithGutter;
+    const tileWorldY = row * tileSizeWithGutter;
+    const tileCenterX = tileWorldX + (props.tileSize * dpr()) / 2;
+    const tileCenterY = tileWorldY + (props.tileSize * dpr()) / 2;
+
+    // Calculate viewport center in screen space
+    const viewportCenterX = (viewportWidth() * dpr()) / 2;
+    const viewportCenterY = (viewportHeight() * dpr()) / 2;
+
+    // Set zoom to 1.0 for comfortable viewing
+    const focusZoom = 1.0;
+
+    // Calculate pan to center the tile
+    // Forward: screen = world * zoom + pan
+    // We want: screen = viewportCenter, world = tileCenter
+    // Therefore: pan = viewportCenter - tileCenter * zoom
+    const newPanX = viewportCenterX - tileCenterX * focusZoom;
+    const newPanY = viewportCenterY - tileCenterY * focusZoom;
+
+    setGridZoom(focusZoom);
+    setGridPanX(newPanX);
+    setGridPanY(newPanY);
+
+    updateGridTransform();
+    scheduleUpdate();
+  };
+
   // Handle keyboard events
   const handleKeyDown = (e: KeyboardEvent) => {
     if (viewMode() === 'grid') {
@@ -649,6 +723,9 @@ const GridViewport: Component<GridViewportProps> = (props) => {
       } else if (e.key === '0') {
         e.preventDefault();
         resetGridView();
+      } else if (e.key === 'f' || e.key === 'F') {
+        e.preventDefault();
+        focusOnSelectedTile();
       } else if (e.key === 'ArrowUp') {
         e.preventDefault();
         setGridPanY(gridPanY() + 50 * dpr());
@@ -875,27 +952,39 @@ const GridViewport: Component<GridViewportProps> = (props) => {
     <div class="grid-viewport" ref={containerRef}>
       {viewMode() === 'grid' ? (
         <>
-          <div class="grid-viewport-info">
-            <span>Visible: {visibleTileCount()} tiles</span>
-            <span>Total: {props.totalItems.toLocaleString()} items</span>
-            {loadingTextures() && (
+          {props.totalItems > 0 && (
+            <div class="grid-viewport-info">
+              <span>Visible: {visibleTileCount()} tiles</span>
+              <span>Total: {props.totalItems.toLocaleString()} items</span>
+              {loadingTextures() && (
+                <span style="color: #4a90e2;">
+                  Loading textures: {texturesLoaded()} / {props.totalItems}
+                </span>
+              )}
               <span style="color: #4a90e2;">
-                Loading textures: {texturesLoaded()} / {props.totalItems}
+                Zoom: {(gridZoom() * 100).toFixed(0)}%
               </span>
-            )}
-            <span style="color: #4a90e2;">
-              Zoom: {(gridZoom() * 100).toFixed(0)}%
-            </span>
-            <span>Viewport: {viewportWidth().toFixed(0)}x{viewportHeight().toFixed(0)} @ {dpr().toFixed(2)}x</span>
-            {props.selectedAssets.length > 0 && (
-              <span style="color: #4a90e2;">
-                {props.selectedAssets.length} selected • Press Enter to view
+              <span>Viewport: {viewportWidth().toFixed(0)}x{viewportHeight().toFixed(0)} @ {dpr().toFixed(2)}x</span>
+              {props.selectedAssets.length > 0 && (
+                <span style="color: #4a90e2;">
+                  {props.selectedAssets.length} selected • Press Enter to view
+                </span>
+              )}
+              <span style="color: #888;">
+                Wheel zoom • Drag pan • +/- • Arrows • 0 reset • F focus
               </span>
-            )}
-            <span style="color: #888;">
-              Wheel zoom • Drag pan • +/- • Arrows • 0 reset
-            </span>
-          </div>
+            </div>
+          )}
+
+          {props.totalItems === 0 && (
+            <div class="grid-empty-state">
+              <div class="grid-empty-icon">&#9634;</div>
+              <div class="grid-empty-title">No assets loaded</div>
+              <div class="grid-empty-hint">
+                Scan a folder from the project panel to get started
+              </div>
+            </div>
+          )}
 
           <div
             class={`grid-content ${isGridDragging() ? 'dragging' : ''}`}

@@ -16,6 +16,9 @@ var tile_texture: texture_2d_array<f32>;
 @group(0) @binding(3)
 var<uniform> transform: mat4x4<f32>;
 
+@group(0) @binding(4)
+var hires_texture: texture_2d_array<f32>;
+
 // Vertex input: unit quad (0,0 to 1,1)
 struct VertexInput {
     @location(0) position: vec2<f32>,
@@ -71,12 +74,22 @@ fn vs_main(
     return out;
 }
 
-// Fragment shader: samples texture array or uses color
+// Fragment shader: samples from low-res or high-res texture array
 @fragment
 fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
-    // Always sample texture at index 0, but blend based on whether we have a valid texture
-    let array_index = max(0, i32(in.texture_index));
-    let tex_color = textureSample(tile_texture, texture_sampler, in.uv, array_index);
+    // Determine which texture tier to sample from
+    // texture_index < 0: no texture (solid color)
+    // texture_index 0-255: low-res array
+    // texture_index 256+: high-res array (actual index = texture_index - 256)
+    let is_hires = in.texture_index >= 256.0;
+    let hires_idx = clamp(i32(in.texture_index - 256.0), 0, 15);
+    let lores_idx = clamp(i32(in.texture_index), 0, 255);
+
+    let hires_sample = textureSample(hires_texture, texture_sampler, in.uv, hires_idx);
+    let lores_sample = textureSample(tile_texture, texture_sampler, in.uv, lores_idx);
+
+    // Select high-res or low-res sample
+    let tex_color = select(lores_sample, hires_sample, is_hires);
 
     // Use texture if texture_index >= 0, otherwise use solid color
     let use_texture = f32(in.texture_index >= 0.0);

@@ -17,6 +17,7 @@ fn main() {
             commands::database::db_init,
             commands::database::db_scan_directory,
             commands::database::db_generate_thumbnails,
+            commands::database::db_get_thumbnail_progress,
             commands::database::db_get_all_assets,
             commands::database::db_get_asset,
             commands::database::db_count_assets,
