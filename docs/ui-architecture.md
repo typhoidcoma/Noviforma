@@ -11,7 +11,8 @@ Noviforma's UI is built with **Tauri + SolidJS**, providing a native desktop app
 
 - **Frontend**: SolidJS reactive UI (`apps/ui/`)
 - **Backend**: Rust with IPC commands (`src-tauri/`)
-- **Renderer**: wgpu GPU rendering (`crates/noviforma-renderer/`)
+- **Renderer**: WebGPU browser-based rendering
+- **Assets**: App icons for Windows, Android, and iOS ([assets/icons/](../assets/icons/))
 
 ---
 
@@ -30,9 +31,14 @@ Noviforma's UI is built with **Tauri + SolidJS**, providing a native desktop app
 - **Logging**: tracing + tracing-subscriber
 
 ### Rendering
-- **GPU API**: wgpu (Vulkan/Metal/DX12)
+- **GPU API**: WebGPU (browser-based)
 - **Instance Limit**: 256 textures, 100K+ tiles
 - **Performance**: 60 FPS sustained
+
+### App Icons
+- **Location**: [assets/icons/](../assets/icons/)
+- **Platforms**: Windows 11, Android, iOS
+- **Manifest**: [icons.json](../assets/icons/icons.json) with all size variants
 
 ---
 
@@ -77,7 +83,13 @@ apps/ui/
 │   │
 │   ├── lib/
 │   │   ├── viewport.ts            # Viewport calculations
-│   │   └── tauri.ts               # IPC wrapper functions
+│   │   ├── webgpu-renderer.ts     # WebGPU renderer implementation
+│   │   ├── asset-urls.ts          # Tauri asset URL helpers
+│   │   └── database.ts            # Database types & helpers
+│   │
+│   ├── shaders/
+│   │   ├── grid.wgsl              # Grid rendering shader
+│   │   └── viewer.wgsl            # Viewer rendering shader
 │   │
 │   ├── App.tsx                    # Root component
 │   ├── App.css                    # App layout styles
@@ -89,16 +101,23 @@ apps/ui/
 ├── tsconfig.json                  # TypeScript config
 └── package.json                   # Dependencies
 
+assets/
+└── icons/
+    ├── windows11/                 # Windows 11 tiles, logos, splash
+    ├── android/                   # Android launcher icons
+    ├── ios/                       # iOS app icons (all sizes)
+    └── icons.json                 # Icon manifest with all variants
+
 src-tauri/
 ├── src/
 │   ├── commands/
 │   │   ├── mod.rs                 # Command module exports
-│   │   └── renderer.rs            # Renderer IPC commands
+│   │   └── database.rs            # Database IPC commands
 │   │
-│   ├── renderer_state.rs          # Renderer state manager
+│   ├── database_state.rs          # Database state manager
 │   └── main.rs                    # Tauri app entry
 │
-├── tauri.conf.json                # Tauri configuration
+├── tauri.conf.json                # Tauri configuration (references icons)
 └── Cargo.toml                     # Rust dependencies
 ```
 

@@ -22,5 +22,19 @@
     "security": {
       "csp": null
     }
+  },
+  "bundle": {
+    "active": true,
+    "targets": "all",
+    "icon": [
+      "../assets/icons/windows11/Square44x44Logo.targetsize-256.png",
+      "../assets/icons/ios/1024.png",
+      "../assets/icons/android/android-launchericon-512-512.png"
+    ],
+    "windows": {
+      "certificateThumbprint": null,
+      "digestAlgorithm": "sha256",
+      "timestampUrl": ""
+    }
   }
 }

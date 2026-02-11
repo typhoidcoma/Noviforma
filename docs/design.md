@@ -6,6 +6,8 @@ Build a Windows-first (cross-platform-ready) desktop application for browsing, o
 
 Stack: **Tauri (UI shell)** + **Rust (core)** + **wgpu (GPU renderer)**.
 
+**App Icons**: Platform-specific icons are located in [assets/icons/](../assets/icons/) with variants for Windows 11, Android, and iOS.
+
 ## 2. Product Goals
 ### 2.1 Must-have (v1)
 - GPU-driven **grid viewport** for browsing large media sets.
