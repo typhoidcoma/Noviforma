@@ -1,4 +1,4 @@
-use image::{DynamicImage, ImageError, ImageFormat};
+use image::{ImageError, ImageFormat};
 use std::path::{Path, PathBuf};
 
 const THUMBNAIL_SIZE: u32 = 512;

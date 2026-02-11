@@ -2,7 +2,6 @@ use crate::instance::{QuadVertex, ViewerInstance};
 use wgpu::{
     BindGroupLayout, Buffer, Device, RenderPipeline, SurfaceConfiguration,
 };
-use wgpu::util::DeviceExt;
 
 /// Pipeline for fullscreen image viewer
 pub struct ViewerPipeline {
@@ -16,7 +15,7 @@ impl ViewerPipeline {
         device: &Device,
         config: &SurfaceConfiguration,
         bind_group_layout: &BindGroupLayout,
-        quad_vertex_buffer: &Buffer,
+        _quad_vertex_buffer: &Buffer,
     ) -> Self {
         // Load viewer shader
         let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {

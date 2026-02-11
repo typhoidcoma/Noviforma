@@ -19,7 +19,100 @@ pub struct State {
 }
 
 impl State {
-    /// Create a new wgpu state for rendering
+    /// Create a new wgpu state with an existing surface (for Tauri)
+    pub async fn new_with_surface(
+        surface: Surface<'static>,
+        width: u32,
+        height: u32,
+    ) -> Result<Self, String> {
+        let instance = Instance::new(wgpu::InstanceDescriptor {
+            backends: wgpu::Backends::PRIMARY,
+            ..Default::default()
+        });
+
+        // Request adapter (prefer high-performance GPU)
+        let adapter = instance
+            .request_adapter(&wgpu::RequestAdapterOptions {
+                power_preference: wgpu::PowerPreference::HighPerformance,
+                compatible_surface: Some(&surface),
+                force_fallback_adapter: false,
+            })
+            .await
+            .ok_or_else(|| "Failed to find suitable GPU adapter".to_string())?;
+
+        tracing::info!(
+            "Selected GPU adapter: {} ({:?})",
+            adapter.get_info().name,
+            adapter.get_info().backend
+        );
+
+        // Request device and queue
+        let (device, queue) = adapter
+            .request_device(
+                &DeviceDescriptor {
+                    label: Some("Noviforma Render Device"),
+                    required_features: Features::empty(),
+                    required_limits: Limits::default(),
+                },
+                None,
+            )
+            .await
+            .map_err(|e| format!("Failed to create device: {:?}", e))?;
+
+        // Get surface capabilities
+        let surface_caps = surface.get_capabilities(&adapter);
+        let surface_format = surface_caps
+            .formats
+            .iter()
+            .find(|f| f.is_srgb())
+            .copied()
+            .unwrap_or(surface_caps.formats[0]);
+
+        tracing::info!("Surface format: {:?}", surface_format);
+
+        // Configure surface
+        let config = SurfaceConfiguration {
+            usage: TextureUsages::RENDER_ATTACHMENT,
+            format: surface_format,
+            width,
+            height,
+            present_mode: wgpu::PresentMode::Fifo, // VSync
+            alpha_mode: surface_caps.alpha_modes[0],
+            view_formats: vec![],
+            desired_maximum_frame_latency: 2,
+        };
+
+        surface.configure(&device, &config);
+
+        // Create render pipeline
+        let pipeline = Pipeline::new(&device, &queue, &config);
+
+        // Create viewer pipeline (shares bind group layout with grid pipeline)
+        let viewer_pipeline = ViewerPipeline::new(
+            &device,
+            &config,
+            &pipeline.bind_group_layout,
+            &pipeline.quad_vertex_buffer,
+        );
+
+        // Update viewport with initial dimensions
+        pipeline.update_viewport(&queue, width, height);
+
+        Ok(Self {
+            surface,
+            device,
+            queue,
+            config,
+            size: (width, height),
+            pipeline,
+            viewer_pipeline,
+            instances: Vec::new(),
+            stats: PerfStats::new(),
+            total_tiles: 0,
+        })
+    }
+
+    /// Create a new wgpu state for rendering (for winit windows)
     pub async fn new(
         window: &winit::window::Window,
         width: u32,

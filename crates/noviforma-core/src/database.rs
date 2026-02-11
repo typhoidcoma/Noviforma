@@ -146,4 +146,11 @@ impl Database {
             .query_row("SELECT COUNT(*) FROM assets", [], |row| row.get(0))?;
         Ok(count)
     }
+
+    /// Clear all assets from the database
+    pub fn clear_all_assets(&self) -> Result<usize> {
+        let deleted = self.conn.execute("DELETE FROM assets", [])?;
+        tracing::info!("Cleared {} assets from database", deleted);
+        Ok(deleted)
+    }
 }
