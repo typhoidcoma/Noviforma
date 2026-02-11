@@ -636,7 +636,7 @@ export class WebGPURenderer {
       // Composite onto gray background, centered
       const canvas = new OffscreenCanvas(maxSize, maxSize);
       const ctx = canvas.getContext('2d')!;
-      ctx.fillStyle = '#808080';
+      ctx.fillStyle = '#1a2228';
       ctx.fillRect(0, 0, maxSize, maxSize);
       const ox = Math.round((maxSize - width) / 2);
       const oy = Math.round((maxSize - height) / 2);
@@ -725,7 +725,7 @@ export class WebGPURenderer {
       // Composite onto gray background, centered
       const canvas = new OffscreenCanvas(maxSize, maxSize);
       const ctx = canvas.getContext('2d')!;
-      ctx.fillStyle = '#808080';
+      ctx.fillStyle = '#1a2228';
       ctx.fillRect(0, 0, maxSize, maxSize);
       const ox = Math.round((maxSize - width) / 2);
       const oy = Math.round((maxSize - height) / 2);

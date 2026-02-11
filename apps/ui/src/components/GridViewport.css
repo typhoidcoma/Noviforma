@@ -28,11 +28,23 @@
   left: 0;
   width: 100%;
   height: 100%;
-  cursor: grab;
+  cursor: crosshair;
 }
 
 .grid-content.dragging {
   cursor: grabbing;
+}
+
+.grid-content.lasso-active {
+  cursor: crosshair;
+}
+
+.lasso-rect {
+  position: absolute;
+  border: 1px solid #5AB6C6;
+  background: rgba(90, 182, 198, 0.15);
+  pointer-events: none;
+  z-index: 2;
 }
 
 #gpu-grid-canvas {

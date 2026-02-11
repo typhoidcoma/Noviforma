@@ -390,7 +390,6 @@ const ProjectBrowser: Component<ProjectBrowserProps> = (props) => {
                   placeholder="Tag name..."
                   value={newTagName()}
                   onInput={(e) => setNewTagName(e.currentTarget.value)}
-                  onKeyDown={(e) => e.key === 'Enter' && handleCreateTag()}
                 />
                 <input
                   type="color"
@@ -445,7 +444,6 @@ const ProjectBrowser: Component<ProjectBrowserProps> = (props) => {
                   placeholder="Shot name..."
                   value={newShotName()}
                   onInput={(e) => setNewShotName(e.currentTarget.value)}
-                  onKeyDown={(e) => e.key === 'Enter' && handleCreateShot()}
                 />
                 <input
                   type="text"

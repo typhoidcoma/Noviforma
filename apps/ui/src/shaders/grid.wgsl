@@ -107,6 +107,8 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     let tex_color = select(lores_sample, hires_sample, is_hires);
 
     // Use texture if texture_index >= 0, otherwise use solid color
+    // Texture is tinted by in.color (1,1,1 = no tint; >1 = brighten)
     let use_texture = f32(in.texture_index >= 0.0);
-    return mix(in.color, tex_color, use_texture);
+    let textured_result = tex_color * in.color;
+    return mix(in.color, textured_result, use_texture);
 }

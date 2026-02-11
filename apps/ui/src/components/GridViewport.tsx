@@ -1,4 +1,4 @@
-import { Component, createSignal, onMount, onCleanup, createEffect, For } from 'solid-js';
+import { Component, createSignal, onMount, onCleanup, createEffect, For, Show } from 'solid-js';
 import { calculateVisibleTiles, GRID_PADDING } from '../lib/viewport';
 import { WebGPURenderer, type TileInstance } from '../lib/webgpu-renderer';
 import { getThumbnailUrl } from '../lib/asset-urls';
@@ -53,6 +53,15 @@ const GridViewport: Component<GridViewportProps> = (props) => {
   const [tooltipX, setTooltipX] = createSignal(0);
   const [tooltipY, setTooltipY] = createSignal(0);
   let tooltipTimeout: number | null = null;
+
+  // Lasso selection state
+  const [isLassoActive, setIsLassoActive] = createSignal(false);
+  const [lassoStart, setLassoStart] = createSignal({ x: 0, y: 0 });
+  const [lassoCurrent, setLassoCurrent] = createSignal({ x: 0, y: 0 });
+  let mouseDownPos = { x: 0, y: 0 };
+  let mouseDownButton = -1;
+  let didDrag = false;
+  let lassoPreviewSet = new Set<number>();
 
   let rafId: number | null = null;
   let pendingUpdate = false;
@@ -114,7 +123,7 @@ const GridViewport: Component<GridViewportProps> = (props) => {
         const tileInstances: TileInstance[] = tiles.map(t => {
           const asset = props.assets[t.id];
           let textureIndex = -1;
-          let r = 0.2, g = 0.2, b = 0.2, a = 1.0; // Default gray
+          let r = 0.102, g = 0.133, b = 0.157, a = 1.0; // #1a2228
 
           if (asset && asset.id) {
             textureIndex = assetTextureMap.get(asset.id) ?? -1;
@@ -149,10 +158,10 @@ const GridViewport: Component<GridViewportProps> = (props) => {
             }
           }
 
-          // Brighten selected tiles
-          const isSelected = props.selectedAssets.includes(t.id);
-          if (isSelected) {
-            r *= 1.5; g *= 1.5; b *= 1.5;
+          // Tint lasso preview tiles (subtle brighten during drag)
+          const isLassoPreview = lassoPreviewSet.has(t.id);
+          if (isLassoPreview) {
+            r *= 1.15; g *= 1.15; b *= 1.15;
           }
 
           return {
@@ -168,31 +177,39 @@ const GridViewport: Component<GridViewportProps> = (props) => {
           };
         });
 
-        // Add border instances for selected tiles
-        const selectedTiles = tiles.filter(t => props.selectedAssets.includes(t.id));
-        if (selectedTiles.length > 0) {
-          console.log('Adding borders for tiles:', selectedTiles.map(t => ({ id: t.id, x: t.x, y: t.y })));
+        // Build rounded-corner selection backgrounds (rendered BEHIND tiles)
+        const borderWidth = 3 * dpr();
+        const selectionBgs: TileInstance[] = [];
+
+        for (const t of tiles) {
+          const isSelected = props.selectedAssets.includes(t.id);
+          const isLassoPreview = lassoPreviewSet.has(t.id);
+
+          if (isSelected) {
+            // Solid teal background behind selected tiles
+            selectionBgs.push({
+              x: t.x * dpr() - borderWidth,
+              y: t.y * dpr() - borderWidth,
+              w: t.w * dpr() + 2 * borderWidth,
+              h: t.h * dpr() + 2 * borderWidth,
+              textureIndex: -1,
+              r: 0.35, g: 0.71, b: 0.78, a: 1.0, // Teal #5AB6C6
+            });
+          } else if (isLassoPreview) {
+            // Translucent teal background for lasso preview
+            selectionBgs.push({
+              x: t.x * dpr() - borderWidth,
+              y: t.y * dpr() - borderWidth,
+              w: t.w * dpr() + 2 * borderWidth,
+              h: t.h * dpr() + 2 * borderWidth,
+              textureIndex: -1,
+              r: 0.35, g: 0.71, b: 0.78, a: 0.5,
+            });
+          }
         }
 
-        const borderInstances: TileInstance[] = selectedTiles
-          .flatMap(t => {
-            const borderWidth = 3 * dpr();
-            const color = { r: 0.35, g: 0.71, b: 0.78, a: 1.0 }; // Teal #5AB6C6
-
-            return [
-              // Top border
-              { x: t.x * dpr(), y: t.y * dpr(), w: t.w * dpr(), h: borderWidth, textureIndex: -1, ...color },
-              // Bottom border
-              { x: t.x * dpr(), y: (t.y + t.h) * dpr() - borderWidth, w: t.w * dpr(), h: borderWidth, textureIndex: -1, ...color },
-              // Left border
-              { x: t.x * dpr(), y: t.y * dpr(), w: borderWidth, h: t.h * dpr(), textureIndex: -1, ...color },
-              // Right border
-              { x: (t.x + t.w) * dpr() - borderWidth, y: t.y * dpr(), w: borderWidth, h: t.h * dpr(), textureIndex: -1, ...color },
-            ];
-          });
-
-        // Combine tiles and borders (borders rendered on top)
-        renderer!.updateTiles([...tileInstances, ...borderInstances]);
+        // Backgrounds first (behind), then tiles on top
+        renderer!.updateTiles([...selectionBgs, ...tileInstances]);
       }
 
       // Render frame
@@ -283,14 +300,9 @@ const GridViewport: Component<GridViewportProps> = (props) => {
   // Handle tile clicks for selection
   const handleClick = (e: MouseEvent) => {
     if (viewMode() !== 'grid') return;
+    if (didDrag) { didDrag = false; return; }
 
     const tileId = screenToTileId(e.clientX, e.clientY);
-    console.log('Click detected:', {
-      screenPos: { x: e.clientX, y: e.clientY },
-      tileId,
-      panZoom: { zoom: gridZoom(), panX: gridPanX(), panY: gridPanY() },
-      viewportSize: { width: viewportWidth(), height: viewportHeight() },
-    });
 
     if (tileId === null) return;
 
@@ -320,28 +332,65 @@ const GridViewport: Component<GridViewportProps> = (props) => {
     props.onSelectionChange(newSelection);
   };
 
-  // Enter viewer mode
-  const enterViewerMode = () => {
-    if (props.selectedAssets.length === 0 || !renderer) return;
+  // Find all tiles that intersect the lasso rectangle
+  const tilesInLassoRect = (): number[] => {
+    if (!containerRef) return [];
+    const rect = containerRef.getBoundingClientRect();
 
-    const tileId = props.selectedAssets[0];
-    const asset = props.assets[tileId];
-    if (!asset) return;
+    const s = lassoStart(), c = lassoCurrent();
+    const minSX = Math.min(s.x, c.x) - rect.left;
+    const maxSX = Math.max(s.x, c.x) - rect.left;
+    const minSY = Math.min(s.y, c.y) - rect.top;
+    const maxSY = Math.max(s.y, c.y) - rect.top;
 
-    console.log('Entering viewer mode for asset:', asset.id, 'tile:', tileId);
+    // Convert screen CSS pixels to world coordinates
+    const toWorldX = (sx: number) => (sx * dpr() - gridPanX()) / gridZoom();
+    const toWorldY = (sy: number) => (sy * dpr() - gridPanY()) / gridZoom();
 
-    setViewMode('viewer');
-    setViewerAssetId(asset.id);
-    setViewerIndex(tileId);
-    setViewerZoom(1.0);
-    setViewerPanX(0);
-    setViewerPanY(0);
+    const wMinX = toWorldX(minSX);
+    const wMaxX = toWorldX(maxSX);
+    const wMinY = toWorldY(minSY);
+    const wMaxY = toWorldY(maxSY);
 
-    if (containerRef) {
-      containerRef.style.cursor = 'grab';
+    const d = dpr();
+    const tileSizeWithGutter = (props.tileSize + props.gutter) * d;
+    const tileSizePx = props.tileSize * d;
+    const cols = Math.max(1, Math.floor((viewportWidth() * d + props.gutter * d) / tileSizeWithGutter));
+    const padding = GRID_PADDING * d;
+
+    const result: number[] = [];
+    for (let tileId = 0; tileId < props.totalItems; tileId++) {
+      const col = tileId % cols;
+      const row = Math.floor(tileId / cols);
+      const tileX = col * tileSizeWithGutter + padding;
+      const tileY = row * tileSizeWithGutter + padding;
+
+      if (tileX + tileSizePx > wMinX && tileX < wMaxX &&
+          tileY + tileSizePx > wMinY && tileY < wMaxY) {
+        result.push(tileId);
+      }
     }
+    return result;
+  };
 
-    renderViewer();
+  // Apply lasso selection with modifier key support
+  const applyLassoSelection = (lassoTiles: number[], e: MouseEvent) => {
+    if (lassoTiles.length === 0 && !e.shiftKey && !e.ctrlKey && !e.metaKey) {
+      props.onSelectionChange([]);
+      return;
+    }
+    if (e.shiftKey) {
+      const combined = new Set([...props.selectedAssets, ...lassoTiles]);
+      props.onSelectionChange(Array.from(combined).sort((a, b) => a - b));
+    } else if (e.ctrlKey || e.metaKey) {
+      const current = new Set(props.selectedAssets);
+      for (const id of lassoTiles) {
+        if (current.has(id)) current.delete(id); else current.add(id);
+      }
+      props.onSelectionChange(Array.from(current).sort((a, b) => a - b));
+    } else {
+      props.onSelectionChange(lassoTiles);
+    }
   };
 
   // Render viewer mode
@@ -570,38 +619,61 @@ const GridViewport: Component<GridViewportProps> = (props) => {
     scheduleUpdate();
   };
 
-  // Pan drag handlers
+  // Mouse handlers: left-drag = lasso select, middle-drag = pan
   const handleGridMouseDown = (e: MouseEvent) => {
     if (viewMode() !== 'grid') return;
 
-    setIsGridDragging(true);
-    setGridDragStart({ x: e.clientX, y: e.clientY });
+    mouseDownPos = { x: e.clientX, y: e.clientY };
+    mouseDownButton = e.button;
+    didDrag = false;
 
-    // Hide tooltip while dragging
+    // Hide tooltip
     setTooltipVisible(false);
     if (tooltipTimeout) {
       clearTimeout(tooltipTimeout);
       tooltipTimeout = null;
     }
+
+    if (e.button === 1) {
+      // Middle button → pan
+      e.preventDefault();
+      setIsGridDragging(true);
+      setGridDragStart({ x: e.clientX, y: e.clientY });
+    }
+    // Left button: wait for drag threshold in mouseMove
   };
 
   const handleGridMouseMove = (e: MouseEvent) => {
     if (viewMode() !== 'grid') return;
 
     if (isGridDragging()) {
-      // Pan mode
+      // Middle-button pan
       const start = gridDragStart();
       const deltaX = e.clientX - start.x;
       const deltaY = e.clientY - start.y;
 
       setGridDragStart({ x: e.clientX, y: e.clientY });
 
-      // Apply pan in physical pixels
       setGridPanX(gridPanX() + deltaX * dpr());
       setGridPanY(gridPanY() + deltaY * dpr());
 
       updateGridTransform();
       scheduleUpdate();
+    } else if (isLassoActive()) {
+      // Update lasso rectangle and compute live preview
+      setLassoCurrent({ x: e.clientX, y: e.clientY });
+      lassoPreviewSet = new Set(tilesInLassoRect());
+      scheduleUpdate();
+    } else if (mouseDownButton === 0) {
+      // Left button held — check drag threshold
+      const dx = e.clientX - mouseDownPos.x;
+      const dy = e.clientY - mouseDownPos.y;
+      if (Math.abs(dx) + Math.abs(dy) >= 5) {
+        didDrag = true;
+        setIsLassoActive(true);
+        setLassoStart({ x: mouseDownPos.x, y: mouseDownPos.y });
+        setLassoCurrent({ x: e.clientX, y: e.clientY });
+      }
     } else {
       // Tooltip mode - show after 300ms delay
       if (tooltipTimeout) {
@@ -629,14 +701,33 @@ const GridViewport: Component<GridViewportProps> = (props) => {
     }
   };
 
-  const handleGridMouseUp = () => {
+  const handleGridMouseUp = (e: MouseEvent) => {
     if (viewMode() !== 'grid') return;
-    setIsGridDragging(false);
+
+    if (isGridDragging()) {
+      setIsGridDragging(false);
+    }
+
+    if (isLassoActive()) {
+      const selected = tilesInLassoRect();
+      applyLassoSelection(selected, e);
+      setIsLassoActive(false);
+      lassoPreviewSet = new Set();
+      scheduleUpdate();
+    }
+
+    mouseDownButton = -1;
   };
 
   const handleGridMouseLeave = () => {
     if (viewMode() !== 'grid') return;
     setIsGridDragging(false);
+    if (isLassoActive()) {
+      setIsLassoActive(false);
+      lassoPreviewSet = new Set();
+      scheduleUpdate();
+    }
+    mouseDownButton = -1;
     setTooltipVisible(false);
     if (tooltipTimeout) {
       clearTimeout(tooltipTimeout);
@@ -757,9 +848,6 @@ const GridViewport: Component<GridViewportProps> = (props) => {
         setGridPanX(gridPanX() - 50 * dpr());
         updateGridTransform();
         scheduleUpdate();
-      } else if (e.key === 'Enter' && props.selectedAssets.length > 0) {
-        e.preventDefault();
-        enterViewerMode();
       } else if (e.key === 'Escape' && props.selectedAssets.length > 0) {
         e.preventDefault();
         props.onSelectionChange([]);
@@ -978,11 +1066,11 @@ const GridViewport: Component<GridViewportProps> = (props) => {
               <span>Viewport: {viewportWidth().toFixed(0)}x{viewportHeight().toFixed(0)} @ {dpr().toFixed(2)}x</span>
               {props.selectedAssets.length > 0 && (
                 <span style="color: #5AB6C6;">
-                  {props.selectedAssets.length} selected • Press Enter to view
+                  {props.selectedAssets.length} selected
                 </span>
               )}
               <span style="color: #8a8e7a;">
-                Wheel zoom • Drag pan • +/- • Arrows • 0 reset • F focus
+                Drag select • Middle pan • Wheel zoom • +/- • 0 reset • F focus
               </span>
             </div>
           )}
@@ -998,7 +1086,7 @@ const GridViewport: Component<GridViewportProps> = (props) => {
           )}
 
           <div
-            class={`grid-content ${isGridDragging() ? 'dragging' : ''}`}
+            class={`grid-content ${isGridDragging() ? 'dragging' : ''} ${isLassoActive() ? 'lasso-active' : ''}`}
             onClick={handleClick}
             onMouseDown={handleGridMouseDown}
             onMouseMove={handleGridMouseMove}
@@ -1041,6 +1129,27 @@ const GridViewport: Component<GridViewportProps> = (props) => {
             >
               {tooltipText()}
             </div>
+
+            {/* Lasso selection rectangle */}
+            <Show when={isLassoActive()}>
+              {(() => {
+                const rect = containerRef?.getBoundingClientRect();
+                if (!rect) return null;
+                const s = lassoStart(), c = lassoCurrent();
+                const left = Math.min(s.x, c.x) - rect.left;
+                const top = Math.min(s.y, c.y) - rect.top;
+                const width = Math.abs(c.x - s.x);
+                const height = Math.abs(c.y - s.y);
+                return (
+                  <div class="lasso-rect" style={{
+                    left: `${left}px`,
+                    top: `${top}px`,
+                    width: `${width}px`,
+                    height: `${height}px`,
+                  }} />
+                );
+              })()}
+            </Show>
           </div>
         </>
       ) : (
