@@ -2,28 +2,28 @@
   display: flex;
   flex-direction: column;
   height: 100%;
-  background: #1a1a1a;
-  color: #e0e0e0;
+  background: #1a2228;
+  color: #E2FEFD;
   overflow-y: auto;
 }
 
 .inspector-header {
   padding: 16px;
-  border-bottom: 1px solid #333;
-  background: #222;
+  border-bottom: 1px solid #4a5e67;
+  background: #3B4E57;
 }
 
 .inspector-header h3 {
   margin: 0;
   font-size: 16px;
   font-weight: 600;
-  color: #fff;
+  color: #E2FEFD;
 }
 
 .inspector-empty {
   padding: 32px 16px;
   text-align: center;
-  color: #666;
+  color: #6a7060;
 }
 
 .inspector-empty p {
@@ -32,7 +32,7 @@
 
 .inspector-hint {
   font-size: 13px;
-  color: #555;
+  color: #5a6050;
 }
 
 .inspector-single,
@@ -49,7 +49,7 @@
   font-size: 13px;
   font-weight: 600;
   text-transform: uppercase;
-  color: #888;
+  color: #8a8e7a;
   letter-spacing: 0.5px;
 }
 
@@ -58,17 +58,17 @@
   justify-content: space-between;
   align-items: center;
   padding: 8px 0;
-  border-bottom: 1px solid #2a2a2a;
+  border-bottom: 1px solid #2a3a42;
 }
 
 .inspector-field label {
   font-size: 13px;
-  color: #999;
+  color: #9ea295;
 }
 
 .inspector-field span {
   font-size: 13px;
-  color: #e0e0e0;
+  color: #E2FEFD;
 }
 
 .status-badge {
@@ -88,8 +88,8 @@
 }
 
 .tag {
-  background: #333;
-  color: #aaa;
+  background: #3B4E57;
+  color: #b8bca8;
   padding: 4px 10px;
   border-radius: 3px;
   font-size: 12px;
@@ -98,9 +98,9 @@
 .btn-add-tag {
   width: 100%;
   padding: 8px;
-  background: #2a2a2a;
-  color: #888;
-  border: 1px dashed #444;
+  background: #2a3a42;
+  color: #8a8e7a;
+  border: 1px dashed #5a6e77;
   border-radius: 4px;
   cursor: pointer;
   font-size: 12px;
@@ -108,17 +108,17 @@
 }
 
 .btn-add-tag:hover {
-  background: #333;
-  color: #aaa;
-  border-color: #555;
+  background: #3B4E57;
+  color: #b8bca8;
+  border-color: #6a7e87;
 }
 
 .notes-input {
   width: 100%;
   padding: 8px;
-  background: #222;
-  color: #e0e0e0;
-  border: 1px solid #333;
+  background: #3B4E57;
+  color: #E2FEFD;
+  border: 1px solid #4a5e67;
   border-radius: 4px;
   font-family: inherit;
   font-size: 13px;
@@ -127,7 +127,7 @@
 
 .notes-input:focus {
   outline: none;
-  border-color: #4a90e2;
+  border-color: #5AB6C6;
 }
 
 .inspector-actions {
@@ -138,8 +138,8 @@
 
 .btn-primary {
   padding: 10px 16px;
-  background: #4a90e2;
-  color: white;
+  background: #5AB6C6;
+  color: #E2FEFD;
   border: none;
   border-radius: 4px;
   cursor: pointer;
@@ -149,14 +149,14 @@
 }
 
 .btn-primary:hover {
-  background: #357abd;
+  background: #4a9aaa;
 }
 
 .btn-secondary {
   padding: 10px 16px;
-  background: #2a2a2a;
-  color: #e0e0e0;
-  border: 1px solid #444;
+  background: #2a3a42;
+  color: #E2FEFD;
+  border: 1px solid #5a6e77;
   border-radius: 4px;
   cursor: pointer;
   font-size: 13px;
@@ -164,8 +164,8 @@
 }
 
 .btn-secondary:hover {
-  background: #333;
-  border-color: #555;
+  background: #3B4E57;
+  border-color: #6a7e87;
 }
 
 .batch-actions {
@@ -177,8 +177,8 @@
 .selected-list {
   max-height: 200px;
   overflow-y: auto;
-  background: #222;
-  border: 1px solid #333;
+  background: #3B4E57;
+  border: 1px solid #4a5e67;
   border-radius: 4px;
   padding: 8px;
 }
@@ -189,20 +189,20 @@
   align-items: center;
   padding: 6px 8px;
   margin-bottom: 4px;
-  background: #2a2a2a;
+  background: #2a3a42;
   border-radius: 3px;
 }
 
 .selected-id {
   font-size: 12px;
-  color: #aaa;
+  color: #b8bca8;
   font-family: 'Consolas', monospace;
 }
 
 .btn-remove {
   background: none;
   border: none;
-  color: #666;
+  color: #6a7060;
   font-size: 18px;
   cursor: pointer;
   padding: 0 4px;
@@ -211,12 +211,12 @@
 }
 
 .btn-remove:hover {
-  color: #e74c3c;
+  color: #E05839;
 }
 
 .selected-more {
   padding: 6px 8px;
   text-align: center;
-  color: #666;
+  color: #6a7060;
   font-size: 12px;
 }

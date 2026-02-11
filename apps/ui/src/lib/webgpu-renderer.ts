@@ -854,7 +854,7 @@ export class WebGPURenderer {
       colorAttachments: [
         {
           view: textureView,
-          clearValue: { r: 0.04, g: 0.04, b: 0.04, a: 1.0 },
+          clearValue: { r: 0.05, g: 0.10, b: 0.12, a: 1.0 },
           loadOp: 'clear',
           storeOp: 'store',
         },

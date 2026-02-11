@@ -4,26 +4,26 @@
   width: 100vw;
   height: 100vh;
   overflow: hidden;
-  background-color: #1a1a1a;
-  color: #e0e0e0;
+  background-color: #1a2228;
+  color: #E2FEFD;
 }
 
 .resize-handle {
   width: 4px;
   cursor: col-resize;
-  background-color: #2a2a2a;
+  background-color: #2a3a42;
   transition: background-color 0.15s;
 }
 
 .resize-handle:hover {
-  background-color: #4a90e2;
+  background-color: #5AB6C6;
 }
 
 .left-panel,
 .right-panel {
-  background-color: #1a1a1a;
+  background-color: #1a2228;
   padding: 0;
-  border-right: 1px solid #3a3a3a;
+  border-right: 1px solid #4a5e67;
   overflow-y: auto;
   display: flex;
   flex-direction: column;
@@ -31,7 +31,7 @@
 
 .right-panel {
   border-right: none;
-  border-left: 1px solid #3a3a3a;
+  border-left: 1px solid #4a5e67;
 }
 
 .left-panel h3,
@@ -41,19 +41,19 @@
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.5px;
-  color: #888;
+  color: #8a8e7a;
 }
 
 .left-panel p,
 .right-panel p {
   font-size: 13px;
-  color: #666;
+  color: #6a7060;
 }
 
 .center-viewport {
   display: flex;
   flex-direction: column;
-  background-color: #1a1a1a;
+  background-color: #1a2228;
   overflow: hidden;
 }
 
@@ -62,15 +62,15 @@
   justify-content: space-between;
   align-items: center;
   padding: 12px 16px;
-  background-color: #222;
-  border-bottom: 1px solid #3a3a3a;
+  background-color: #3B4E57;
+  border-bottom: 1px solid #4a5e67;
 }
 
 .viewport-header h2 {
   margin: 0;
   font-size: 18px;
   font-weight: 600;
-  color: #fff;
+  color: #E2FEFD;
 }
 
 .viewport-actions {
@@ -80,9 +80,9 @@
 }
 
 .btn-view-mode {
-  background: #2a2a2a;
-  border: 1px solid #444;
-  color: #888;
+  background: #2a3a42;
+  border: 1px solid #5a6e77;
+  color: #8a8e7a;
   font-size: 16px;
   width: 32px;
   height: 32px;
@@ -96,24 +96,24 @@
 }
 
 .btn-view-mode:hover {
-  background: #333;
-  color: #aaa;
-  border-color: #555;
+  background: #3B4E57;
+  color: #b8bca8;
+  border-color: #6a7e87;
 }
 
 .btn-view-mode:active,
 .btn-view-mode.active {
-  background: #4a90e2;
-  color: white;
-  border-color: #4a90e2;
+  background: #5AB6C6;
+  color: #E2FEFD;
+  border-color: #5AB6C6;
 }
 
 .search-input {
   padding: 8px 12px;
-  background: #2a2a2a;
-  border: 1px solid #444;
+  background: #2a3a42;
+  border: 1px solid #5a6e77;
   border-radius: 4px;
-  color: #e0e0e0;
+  color: #E2FEFD;
   font-size: 13px;
   width: 200px;
   transition: all 0.2s;
@@ -121,17 +121,17 @@
 
 .search-input:focus {
   outline: none;
-  border-color: #4a90e2;
-  background: #333;
+  border-color: #5AB6C6;
+  background: #3B4E57;
 }
 
 .search-input::placeholder {
-  color: #666;
+  color: #6a7060;
 }
 
 .controls-section {
-  border-top: 1px solid #333;
-  background: #1e1e1e;
+  border-top: 1px solid #4a5e67;
+  background: #253038;
   margin-top: auto;
 }
 
@@ -139,7 +139,7 @@
   flex: 1;
   position: relative;
   overflow: hidden;
-  background-color: #0a0a0a;
+  background-color: #0d1a1f;
 }
 
 #gpu-viewport {

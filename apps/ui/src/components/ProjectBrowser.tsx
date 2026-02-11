@@ -68,9 +68,9 @@ const ProjectBrowser: Component<ProjectBrowserProps> = (props) => {
   const mockTags = [
     { name: 'Approved', count: 45, color: '#6c6' },
     { name: 'Review', count: 23, color: '#fc6' },
-    { name: 'Rejected', count: 12, color: '#e74c3c' },
-    { name: 'Hero', count: 8, color: '#4a90e2' },
-    { name: 'WIP', count: 156, color: '#999' },
+    { name: 'Rejected', count: 12, color: '#E05839' },
+    { name: 'Hero', count: 8, color: '#5AB6C6' },
+    { name: 'WIP', count: 156, color: '#9ea295' },
   ];
 
   const mockShots = [
@@ -169,29 +169,29 @@ const ProjectBrowser: Component<ProjectBrowserProps> = (props) => {
             <div style="color: #6c6; font-size: 16px; margin-bottom: 8px;">
               Scan complete
             </div>
-            <div style="color: #ccc; font-size: 13px;">
+            <div style="color: #E1E5C9; font-size: 13px;">
               {scanComplete()}
             </div>
           </Show>
 
           <Show when={!scanComplete()}>
             <Show when={scanning()}>
-              <div style="color: #e0e0e0; font-size: 14px; margin-bottom: 12px;">
+              <div style="color: #E2FEFD; font-size: 14px; margin-bottom: 12px;">
                 {statusText()}
               </div>
-              <div style="font-size: 0.9em; color: #888;">
+              <div style="font-size: 0.9em; color: #8a8e7a;">
                 This may take a moment...
               </div>
             </Show>
 
             <Show when={generatingThumbs()}>
-              <div style="color: #e0e0e0; font-size: 14px; margin-bottom: 16px;">
+              <div style="color: #E2FEFD; font-size: 14px; margin-bottom: 16px;">
                 Generating thumbnails...
               </div>
-              <div style="font-size: 36px; font-weight: bold; color: #4a90e2; margin-bottom: 8px;">
+              <div style="font-size: 36px; font-weight: bold; color: #5AB6C6; margin-bottom: 8px;">
                 {percentage()}%
               </div>
-              <div style="font-size: 13px; color: #888;">
+              <div style="font-size: 13px; color: #8a8e7a;">
                 {progressCurrent()} / {progressTotal()} assets
               </div>
             </Show>

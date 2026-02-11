@@ -192,7 +192,7 @@ const App: Component = () => {
               onSelectionChange={setSelectedAssets}
             />
           ) : (
-            <div style="display: flex; align-items: center; justify-content: center; height: 100%; color: #888;">
+            <div style="display: flex; align-items: center; justify-content: center; height: 100%; color: #8a8e7a;">
               Initializing database...
             </div>
           )}

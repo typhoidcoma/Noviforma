@@ -1,6 +1,6 @@
 .progress-bar-container {
-  background: #2a2a2a;
-  border: 1px solid #444;
+  background: #2a3a42;
+  border: 1px solid #5a6e77;
   border-radius: 6px;
   padding: 16px;
   margin: 0 auto;
@@ -19,7 +19,7 @@
 
 .progress-message {
   font-size: 13px;
-  color: #e0e0e0;
+  color: #E2FEFD;
   font-weight: 500;
   word-wrap: break-word;
   overflow-wrap: break-word;
@@ -27,8 +27,8 @@
 
 .progress-cancel-btn {
   background: transparent;
-  border: 1px solid #666;
-  color: #ccc;
+  border: 1px solid #6a7060;
+  color: #E1E5C9;
   padding: 4px 12px;
   border-radius: 4px;
   cursor: pointer;
@@ -37,20 +37,20 @@
 }
 
 .progress-cancel-btn:hover {
-  background: #3a3a3a;
-  border-color: #888;
-  color: #fff;
+  background: #4a5e67;
+  border-color: #8a8e7a;
+  color: #E2FEFD;
 }
 
 .progress-cancel-btn:active {
-  background: #444;
+  background: #5a6e77;
 }
 
 /* Progress track and fill */
 .progress-track {
   width: 100%;
   height: 12px;
-  background: #1a1a1a;
+  background: #1a2228;
   border-radius: 6px;
   overflow: hidden;
   position: relative;
@@ -59,7 +59,7 @@
 
 .progress-fill {
   height: 100%;
-  background: linear-gradient(90deg, #4a90e2 0%, #5ba3f5 100%);
+  background: linear-gradient(90deg, #5AB6C6 0%, #7ccedd 100%);
   border-radius: 6px;
   transition: width 0.2s ease, background 0.3s ease;
   position: relative;
@@ -110,13 +110,13 @@
 .progress-counter {
   font-size: 12px;
   font-family: 'Consolas', 'Monaco', monospace;
-  color: #aaa;
+  color: #b8bca8;
 }
 
 .progress-percentage {
   font-size: 12px;
   font-weight: 600;
-  color: #4a9eff;
+  color: #5AB6C6;
 }
 
 .progress-complete ~ .progress-footer .progress-percentage {

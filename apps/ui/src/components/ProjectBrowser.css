@@ -2,8 +2,8 @@
   display: flex;
   flex-direction: column;
   height: 100%;
-  background: #1a1a1a;
-  color: #e0e0e0;
+  background: #1a2228;
+  color: #E2FEFD;
 }
 
 .browser-header {
@@ -11,21 +11,21 @@
   justify-content: space-between;
   align-items: center;
   padding: 16px;
-  border-bottom: 1px solid #333;
-  background: #222;
+  border-bottom: 1px solid #4a5e67;
+  background: #3B4E57;
 }
 
 .browser-header h3 {
   margin: 0;
   font-size: 16px;
   font-weight: 600;
-  color: #fff;
+  color: #E2FEFD;
 }
 
 .btn-icon {
   background: none;
   border: none;
-  color: #888;
+  color: #8a8e7a;
   font-size: 16px;
   cursor: pointer;
   padding: 4px 8px;
@@ -34,14 +34,14 @@
 }
 
 .btn-icon:hover {
-  background: #2a2a2a;
-  color: #aaa;
+  background: #2a3a42;
+  color: #b8bca8;
 }
 
 .browser-tabs {
   display: flex;
-  border-bottom: 1px solid #333;
-  background: #1e1e1e;
+  border-bottom: 1px solid #4a5e67;
+  background: #253038;
 }
 
 .tab {
@@ -49,7 +49,7 @@
   padding: 12px;
   background: none;
   border: none;
-  color: #888;
+  color: #8a8e7a;
   font-size: 13px;
   font-weight: 500;
   cursor: pointer;
@@ -58,13 +58,13 @@
 }
 
 .tab:hover {
-  color: #aaa;
-  background: #252525;
+  color: #b8bca8;
+  background: #2e4048;
 }
 
 .tab.active {
-  color: #4a90e2;
-  border-bottom-color: #4a90e2;
+  color: #5AB6C6;
+  border-bottom-color: #5AB6C6;
 }
 
 .browser-content {
@@ -85,14 +85,14 @@
   font-size: 12px;
   font-weight: 600;
   text-transform: uppercase;
-  color: #888;
+  color: #8a8e7a;
   letter-spacing: 0.5px;
 }
 
 .btn-add {
-  background: #2a2a2a;
-  border: 1px solid #444;
-  color: #888;
+  background: #2a3a42;
+  border: 1px solid #5a6e77;
+  color: #8a8e7a;
   font-size: 16px;
   width: 24px;
   height: 24px;
@@ -104,9 +104,9 @@
 }
 
 .btn-add:hover {
-  background: #333;
-  color: #aaa;
-  border-color: #555;
+  background: #3B4E57;
+  color: #b8bca8;
+  border-color: #6a7e87;
 }
 
 /* Files Panel */
@@ -120,8 +120,8 @@
   align-items: center;
   gap: 10px;
   padding: 10px;
-  background: #222;
-  border: 1px solid #333;
+  background: #3B4E57;
+  border: 1px solid #4a5e67;
   border-radius: 4px;
   margin-bottom: 8px;
   cursor: pointer;
@@ -129,13 +129,13 @@
 }
 
 .folder-item:hover {
-  background: #282828;
-  border-color: #444;
+  background: #324550;
+  border-color: #5a6e77;
 }
 
 .folder-item.active {
-  background: #2a3a4a;
-  border-color: #4a90e2;
+  background: #2a4a55;
+  border-color: #5AB6C6;
 }
 
 .folder-icon {
@@ -151,7 +151,7 @@
 .folder-name {
   font-size: 13px;
   font-weight: 500;
-  color: #e0e0e0;
+  color: #E2FEFD;
   margin-bottom: 2px;
   white-space: nowrap;
   overflow: hidden;
@@ -160,7 +160,7 @@
 
 .folder-stats {
   font-size: 11px;
-  color: #888;
+  color: #8a8e7a;
   font-family: 'Consolas', monospace;
 }
 
@@ -168,7 +168,7 @@
   opacity: 0;
   background: none;
   border: none;
-  color: #666;
+  color: #6a7060;
   font-size: 14px;
   cursor: pointer;
   padding: 4px 8px;
@@ -182,8 +182,8 @@
 }
 
 .btn-delete-folder:hover {
-  background: #3a1a1a;
-  color: #e74c3c;
+  background: #3a1a15;
+  color: #E05839;
 }
 
 .root-item {
@@ -191,8 +191,8 @@
   align-items: center;
   gap: 8px;
   padding: 10px;
-  background: #222;
-  border: 1px solid #333;
+  background: #3B4E57;
+  border: 1px solid #4a5e67;
   border-radius: 4px;
   margin-bottom: 8px;
   cursor: pointer;
@@ -200,8 +200,8 @@
 }
 
 .root-item:hover {
-  background: #282828;
-  border-color: #444;
+  background: #324550;
+  border-color: #5a6e77;
 }
 
 .root-item .icon {
@@ -212,13 +212,13 @@
   flex: 1;
   font-size: 12px;
   font-family: 'Consolas', monospace;
-  color: #aaa;
+  color: #b8bca8;
 }
 
 .root-item .count {
   font-size: 11px;
-  color: #666;
-  background: #2a2a2a;
+  color: #6a7060;
+  background: #2a3a42;
   padding: 2px 6px;
   border-radius: 3px;
 }
@@ -235,16 +235,16 @@
   align-items: center;
   gap: 10px;
   padding: 10px;
-  background: #222;
-  border: 1px solid #333;
+  background: #3B4E57;
+  border: 1px solid #4a5e67;
   border-radius: 4px;
   cursor: pointer;
   transition: all 0.2s;
 }
 
 .tag-item:hover {
-  background: #282828;
-  border-color: #444;
+  background: #324550;
+  border-color: #5a6e77;
 }
 
 .tag-color {
@@ -257,13 +257,13 @@
 .tag-name {
   flex: 1;
   font-size: 13px;
-  color: #e0e0e0;
+  color: #E2FEFD;
 }
 
 .tag-count {
   font-size: 11px;
-  color: #666;
-  background: #2a2a2a;
+  color: #6a7060;
+  background: #2a3a42;
   padding: 2px 6px;
   border-radius: 3px;
   font-family: 'Consolas', monospace;
@@ -278,16 +278,16 @@
 
 .shot-item {
   padding: 12px;
-  background: #222;
-  border: 1px solid #333;
+  background: #3B4E57;
+  border: 1px solid #4a5e67;
   border-radius: 4px;
   cursor: pointer;
   transition: all 0.2s;
 }
 
 .shot-item:hover {
-  background: #282828;
-  border-color: #444;
+  background: #324550;
+  border-color: #5a6e77;
 }
 
 .shot-header {
@@ -300,7 +300,7 @@
 .shot-name {
   font-size: 14px;
   font-weight: 600;
-  color: #fff;
+  color: #E2FEFD;
   font-family: 'Consolas', monospace;
 }
 
@@ -325,7 +325,7 @@
 
 .shot-info {
   font-size: 12px;
-  color: #888;
+  color: #8a8e7a;
 }
 
 .shot-tasks {
@@ -335,16 +335,16 @@
 /* Footer */
 .browser-footer {
   padding: 12px;
-  border-top: 1px solid #333;
-  background: #1e1e1e;
+  border-top: 1px solid #4a5e67;
+  background: #253038;
 }
 
 .btn-footer {
   width: 100%;
   padding: 10px;
-  background: #2a2a2a;
-  color: #aaa;
-  border: 1px solid #444;
+  background: #2a3a42;
+  color: #b8bca8;
+  border: 1px solid #5a6e77;
   border-radius: 4px;
   cursor: pointer;
   font-size: 12px;
@@ -357,20 +357,20 @@
 }
 
 .btn-footer:hover {
-  background: #333;
-  border-color: #555;
-  color: #ccc;
+  background: #3B4E57;
+  border-color: #6a7e87;
+  color: #E1E5C9;
 }
 
 /* Placeholder text */
 .placeholder-text {
   margin-top: 16px;
   padding: 12px;
-  background: #222;
-  border: 1px dashed #444;
+  background: #3B4E57;
+  border: 1px dashed #5a6e77;
   border-radius: 4px;
   text-align: center;
   font-size: 12px;
-  color: #666;
+  color: #6a7060;
   font-style: italic;
 }

@@ -177,7 +177,7 @@ const GridViewport: Component<GridViewportProps> = (props) => {
         const borderInstances: TileInstance[] = selectedTiles
           .flatMap(t => {
             const borderWidth = 3 * dpr();
-            const color = { r: 0.29, g: 0.56, b: 0.89, a: 1.0 }; // Bright blue #4a90e2
+            const color = { r: 0.35, g: 0.71, b: 0.78, a: 1.0 }; // Teal #5AB6C6
 
             return [
               // Top border
@@ -968,20 +968,20 @@ const GridViewport: Component<GridViewportProps> = (props) => {
               <span>Visible: {visibleTileCount()} tiles</span>
               <span>Total: {props.totalItems.toLocaleString()} items</span>
               {loadingTextures() && (
-                <span style="color: #4a90e2;">
+                <span style="color: #5AB6C6;">
                   Loading textures: {texturesLoaded()} / {props.totalItems}
                 </span>
               )}
-              <span style="color: #4a90e2;">
+              <span style="color: #5AB6C6;">
                 Zoom: {(gridZoom() * 100).toFixed(0)}%
               </span>
               <span>Viewport: {viewportWidth().toFixed(0)}x{viewportHeight().toFixed(0)} @ {dpr().toFixed(2)}x</span>
               {props.selectedAssets.length > 0 && (
-                <span style="color: #4a90e2;">
+                <span style="color: #5AB6C6;">
                   {props.selectedAssets.length} selected • Press Enter to view
                 </span>
               )}
-              <span style="color: #888;">
+              <span style="color: #8a8e7a;">
                 Wheel zoom • Drag pan • +/- • Arrows • 0 reset • F focus
               </span>
             </div>
@@ -1027,7 +1027,7 @@ const GridViewport: Component<GridViewportProps> = (props) => {
                 position: 'absolute',
                 padding: '6px 10px',
                 background: 'rgba(0, 0, 0, 0.9)',
-                color: '#fff',
+                color: '#E2FEFD',
                 'border-radius': '4px',
                 'font-size': '12px',
                 'pointer-events': 'none',
@@ -1045,8 +1045,8 @@ const GridViewport: Component<GridViewportProps> = (props) => {
         </>
       ) : (
         <>
-          <div class="grid-viewport-info" style="background: #1a1a1a;">
-            <span style="color: #4a90e2;">
+          <div class="grid-viewport-info" style="background: #1a2228;">
+            <span style="color: #5AB6C6;">
               {(() => {
                 const asset = props.assets[viewerIndex()];
                 return asset?.filename || 'Unknown';
@@ -1063,11 +1063,11 @@ const GridViewport: Component<GridViewportProps> = (props) => {
             </span>
             <span>
               Image {viewerIndex() + 1} / {props.totalItems}
-              {viewerIndex() === 0 && <span style="color: #666;"> (First)</span>}
-              {viewerIndex() === props.totalItems - 1 && <span style="color: #666;"> (Last)</span>}
+              {viewerIndex() === 0 && <span style="color: #6a7060;"> (First)</span>}
+              {viewerIndex() === props.totalItems - 1 && <span style="color: #6a7060;"> (Last)</span>}
             </span>
-            <span style="color: #4a90e2;">Zoom: {(viewerZoom() * 100).toFixed(0)}%</span>
-            <span style="color: #888;">← → navigate • Double-click zoom • Wheel • Drag • PgUp/PgDn • Home/End • Esc</span>
+            <span style="color: #5AB6C6;">Zoom: {(viewerZoom() * 100).toFixed(0)}%</span>
+            <span style="color: #8a8e7a;">← → navigate • Double-click zoom • Wheel • Drag • PgUp/PgDn • Home/End • Esc</span>
           </div>
 
           <div class="viewer-container">
