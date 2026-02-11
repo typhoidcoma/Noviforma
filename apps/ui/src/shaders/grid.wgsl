@@ -13,6 +13,9 @@ var texture_sampler: sampler;
 @group(0) @binding(2)
 var tile_texture: texture_2d_array<f32>;
 
+@group(0) @binding(3)
+var<uniform> transform: mat4x4<f32>;
+
 // Vertex input: unit quad (0,0 to 1,1)
 struct VertexInput {
     @location(0) position: vec2<f32>,
@@ -51,11 +54,14 @@ fn vs_main(
     let pixel_x = instance.pos_x + vertex.position.x * instance.size_w;
     let pixel_y = instance.pos_y + vertex.position.y * instance.size_h;
 
-    // Convert pixel coordinates to clip space [-1, 1]
+    // Apply transform (zoom and pan)
+    let transformed = transform * vec4<f32>(pixel_x, pixel_y, 0.0, 1.0);
+
+    // Convert transformed coordinates to clip space [-1, 1]
     // X: 0 -> -1, viewport.width -> 1
     // Y: 0 -> 1, viewport.height -> -1 (flip Y axis)
-    let clip_x = (pixel_x / viewport.width) * 2.0 - 1.0;
-    let clip_y = 1.0 - (pixel_y / viewport.height) * 2.0;
+    let clip_x = (transformed.x / viewport.width) * 2.0 - 1.0;
+    let clip_y = 1.0 - (transformed.y / viewport.height) * 2.0;
 
     out.clip_position = vec4<f32>(clip_x, clip_y, 0.0, 1.0);
     out.uv = vertex.position; // Unit quad position is already valid UV (0,0 to 1,1)

@@ -1,5 +1,5 @@
 import { Component, createSignal, onMount, onCleanup, createEffect, For } from 'solid-js';
-import { calculateVisibleTiles, calculateContentHeight } from '../lib/viewport';
+import { calculateVisibleTiles } from '../lib/viewport';
 import { WebGPURenderer, type TileInstance } from '../lib/webgpu-renderer';
 import { getThumbnailUrl } from '../lib/asset-urls';
 import type { Asset } from '../lib/database';
@@ -18,16 +18,11 @@ interface GridViewportProps {
 
 const GridViewport: Component<GridViewportProps> = (props) => {
   let containerRef: HTMLDivElement | undefined;
-  let scrollerRef: HTMLDivElement | undefined;
   let canvasRef: HTMLCanvasElement | undefined;
-  let textCanvasRef: HTMLCanvasElement | undefined;
-  let textCtx: CanvasRenderingContext2D | null = null;
   let renderer: WebGPURenderer | null = null;
 
   const [viewportWidth, setViewportWidth] = createSignal(0);
   const [viewportHeight, setViewportHeight] = createSignal(0);
-  const [scrollTop, setScrollTop] = createSignal(0);
-  const [scrollLeft, setScrollLeft] = createSignal(0);
   const [dpr, setDpr] = createSignal(window.devicePixelRatio || 1);
   const [visibleTileCount, setVisibleTileCount] = createSignal(0);
   const [texturesLoaded, setTexturesLoaded] = createSignal(0);
@@ -45,20 +40,26 @@ const GridViewport: Component<GridViewportProps> = (props) => {
   const [isDragging, setIsDragging] = createSignal(false);
   const [dragStart, setDragStart] = createSignal({ x: 0, y: 0 });
 
+  // Grid pan/zoom state
+  const [gridZoom, setGridZoom] = createSignal(1.0);
+  const [gridPanX, setGridPanX] = createSignal(0);
+  const [gridPanY, setGridPanY] = createSignal(0);
+  const [isGridDragging, setIsGridDragging] = createSignal(false);
+  const [gridDragStart, setGridDragStart] = createSignal({ x: 0, y: 0 });
+
+  // Tooltip state
+  const [tooltipVisible, setTooltipVisible] = createSignal(false);
+  const [tooltipText, setTooltipText] = createSignal('');
+  const [tooltipX, setTooltipX] = createSignal(0);
+  const [tooltipY, setTooltipY] = createSignal(0);
+  let tooltipTimeout: number | null = null;
+
   let rafId: number | null = null;
   let pendingUpdate = false;
   let loadingInProgress = false;
 
   // Map asset ID to texture index
   const assetTextureMap = new Map<number, number>();
-
-  // Calculate content height for scrolling
-  const contentHeight = () => calculateContentHeight(
-    props.totalItems,
-    props.tileSize,
-    props.gutter,
-    viewportWidth()
-  );
 
   // Update visible tiles and render (batched via RAF)
   const scheduleUpdate = () => {
@@ -75,8 +76,10 @@ const GridViewport: Component<GridViewportProps> = (props) => {
           gutter: props.gutter,
           viewportWidth: viewportWidth(),
           viewportHeight: viewportHeight(),
-          scrollTop: scrollTop(),
-          scrollLeft: scrollLeft(),
+          zoom: gridZoom(),
+          panX: gridPanX(),
+          panY: gridPanY(),
+          dpr: dpr(),
         });
 
         setVisibleTileCount(tiles.length);
@@ -156,9 +159,6 @@ const GridViewport: Component<GridViewportProps> = (props) => {
 
       // Render frame
       renderer!.render();
-
-      // Render text overlay on top of tiles
-      renderTextOverlay();
     });
   };
 
@@ -188,14 +188,6 @@ const GridViewport: Component<GridViewportProps> = (props) => {
     return [r, g, b];
   };
 
-  // Handle scroll events
-  const handleScroll = () => {
-    if (!scrollerRef) return;
-    setScrollTop(scrollerRef.scrollTop);
-    setScrollLeft(scrollerRef.scrollLeft);
-    scheduleUpdate();
-  };
-
   // Handle resize events
   const handleResize = () => {
     if (!containerRef || !renderer) return;
@@ -210,43 +202,32 @@ const GridViewport: Component<GridViewportProps> = (props) => {
     setDpr(newDpr);
 
     renderer.resize(newWidth, newHeight, newDpr);
-    resizeTextCanvas();
     scheduleUpdate();
   };
 
-  // Resize text canvas to match viewport
-  const resizeTextCanvas = () => {
-    if (!textCanvasRef || !textCtx) return;
-
-    const width = viewportWidth();
-    const height = viewportHeight();
-    const devicePixelRatio = dpr();
-
-    // Size canvas for high-DPI displays
-    textCanvasRef.width = width * devicePixelRatio;
-    textCanvasRef.height = height * devicePixelRatio;
-    textCanvasRef.style.width = `${width}px`;
-    textCanvasRef.style.height = `${height}px`;
-
-    // Scale context to match DPR
-    textCtx.scale(devicePixelRatio, devicePixelRatio);
-  };
-
-  // Convert screen coordinates to tile ID
+  // Convert screen coordinates to tile ID (accounting for pan/zoom)
   const screenToTileId = (clientX: number, clientY: number): number | null => {
-    if (!containerRef || !scrollerRef) return null;
+    if (!containerRef) return null;
 
     const rect = containerRef.getBoundingClientRect();
-    const x = clientX - rect.left + scrollLeft();
-    const y = clientY - rect.top + scrollTop();
 
-    const tileSizeWithGutter = props.tileSize + props.gutter;
-    const cols = Math.max(1, Math.floor((viewportWidth() + props.gutter) / tileSizeWithGutter));
+    // Screen position relative to viewport
+    const screenX = (clientX - rect.left) * dpr();
+    const screenY = (clientY - rect.top) * dpr();
+
+    // Inverse transform: screen -> world coordinates
+    // Forward: screen = world * zoom + pan
+    // Inverse: world = (screen - pan) / zoom
+    const worldX = (screenX - gridPanX()) / gridZoom();
+    const worldY = (screenY - gridPanY()) / gridZoom();
+
+    const tileSizeWithGutter = (props.tileSize + props.gutter) * dpr();
+    const cols = Math.max(1, Math.floor((viewportWidth() * dpr() + props.gutter * dpr()) / tileSizeWithGutter));
 
     if (cols === 0) return null;
 
-    const col = Math.floor(x / tileSizeWithGutter);
-    const row = Math.floor(y / tileSizeWithGutter);
+    const col = Math.floor(worldX / tileSizeWithGutter);
+    const row = Math.floor(worldY / tileSizeWithGutter);
 
     if (col < 0 || col >= cols) return null;
 
@@ -265,7 +246,7 @@ const GridViewport: Component<GridViewportProps> = (props) => {
     console.log('Click detected:', {
       screenPos: { x: e.clientX, y: e.clientY },
       tileId,
-      scrollPos: { left: scrollLeft(), top: scrollTop() },
+      panZoom: { zoom: gridZoom(), panX: gridPanX(), panY: gridPanY() },
       viewportSize: { width: viewportWidth(), height: viewportHeight() },
     });
 
@@ -319,48 +300,6 @@ const GridViewport: Component<GridViewportProps> = (props) => {
     }
 
     renderViewer();
-  };
-
-  // Render text overlay on canvas
-  const renderTextOverlay = () => {
-    if (!textCtx || !textCanvasRef) return;
-
-    const width = viewportWidth();
-    const height = viewportHeight();
-
-    // Clear canvas
-    textCtx.clearRect(0, 0, width, height);
-
-    // Configure text styling
-    textCtx.font = '11px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
-    textCtx.textAlign = 'center';
-    textCtx.textBaseline = 'top';
-
-    // Render filename for each visible tile
-    const tiles = visibleTiles();
-    for (const tile of tiles) {
-      const asset = props.assets[tile.id];
-      if (!asset) continue;
-
-      // Position text at bottom of tile (small overlay)
-      const textX = tile.x + tile.w / 2;  // Center horizontally
-      const textY = tile.y + tile.h - 20;  // 20px from bottom
-
-      // Draw semi-transparent background
-      textCtx.fillStyle = 'rgba(0, 0, 0, 0.7)';
-      const textWidth = textCtx.measureText(asset.filename).width;
-      const padding = 4;
-      textCtx.fillRect(
-        textX - textWidth / 2 - padding,
-        textY - padding,
-        textWidth + padding * 2,
-        16 + padding * 2
-      );
-
-      // Draw white text
-      textCtx.fillStyle = '#ffffff';
-      textCtx.fillText(asset.filename, textX, textY);
-    }
   };
 
   // Render viewer mode
@@ -545,10 +484,192 @@ const GridViewport: Component<GridViewportProps> = (props) => {
     renderViewer();
   };
 
+  // Grid pan/zoom handlers
+
+  // Update renderer with current transform
+  const updateGridTransform = () => {
+    if (!renderer) return;
+    renderer.setGridTransform(gridZoom(), gridPanX(), gridPanY());
+  };
+
+  // Zoom handler with mouse-centered zooming
+  const handleGridWheel = (e: WheelEvent) => {
+    if (viewMode() !== 'grid' || !containerRef) return;
+
+    e.preventDefault();
+
+    // Get mouse position in viewport
+    const rect = containerRef.getBoundingClientRect();
+    const mouseX = (e.clientX - rect.left) * dpr();
+    const mouseY = (e.clientY - rect.top) * dpr();
+
+    // Calculate zoom delta
+    const zoomSpeed = 0.001;
+    const delta = -e.deltaY * zoomSpeed;
+    const oldZoom = gridZoom();
+    const newZoom = (oldZoom * (1.0 + delta)).clamp(0.1, 10.0);
+
+    // Zoom-to-point: adjust pan to keep mouse position stable
+    // world_pos = (screen_pos - pan) / zoom
+    // We want world_pos to stay constant, so:
+    // (mouseX - oldPan) / oldZoom = (mouseX - newPan) / newZoom
+    // Solving for newPan:
+    // newPan = mouseX - (mouseX - oldPan) * (newZoom / oldZoom)
+
+    const zoomRatio = newZoom / oldZoom;
+    const newPanX = mouseX - (mouseX - gridPanX()) * zoomRatio;
+    const newPanY = mouseY - (mouseY - gridPanY()) * zoomRatio;
+
+    setGridZoom(newZoom);
+    setGridPanX(newPanX);
+    setGridPanY(newPanY);
+
+    updateGridTransform();
+    scheduleUpdate();
+  };
+
+  // Pan drag handlers
+  const handleGridMouseDown = (e: MouseEvent) => {
+    if (viewMode() !== 'grid') return;
+
+    setIsGridDragging(true);
+    setGridDragStart({ x: e.clientX, y: e.clientY });
+
+    // Hide tooltip while dragging
+    setTooltipVisible(false);
+    if (tooltipTimeout) {
+      clearTimeout(tooltipTimeout);
+      tooltipTimeout = null;
+    }
+  };
+
+  const handleGridMouseMove = (e: MouseEvent) => {
+    if (viewMode() !== 'grid') return;
+
+    if (isGridDragging()) {
+      // Pan mode
+      const start = gridDragStart();
+      const deltaX = e.clientX - start.x;
+      const deltaY = e.clientY - start.y;
+
+      setGridDragStart({ x: e.clientX, y: e.clientY });
+
+      // Apply pan in physical pixels
+      setGridPanX(gridPanX() + deltaX * dpr());
+      setGridPanY(gridPanY() + deltaY * dpr());
+
+      updateGridTransform();
+      scheduleUpdate();
+    } else {
+      // Tooltip mode - show after 300ms delay
+      if (tooltipTimeout) {
+        clearTimeout(tooltipTimeout);
+      }
+
+      const clientX = e.clientX;
+      const clientY = e.clientY;
+
+      tooltipTimeout = window.setTimeout(() => {
+        const tileId = screenToTileId(clientX, clientY);
+
+        if (tileId !== null && tileId < props.assets.length) {
+          const asset = props.assets[tileId];
+          if (asset) {
+            setTooltipText(asset.filename);
+            setTooltipX(clientX);
+            setTooltipY(clientY);
+            setTooltipVisible(true);
+          }
+        } else {
+          setTooltipVisible(false);
+        }
+      }, 300);
+    }
+  };
+
+  const handleGridMouseUp = () => {
+    if (viewMode() !== 'grid') return;
+    setIsGridDragging(false);
+  };
+
+  const handleGridMouseLeave = () => {
+    if (viewMode() !== 'grid') return;
+    setIsGridDragging(false);
+    setTooltipVisible(false);
+    if (tooltipTimeout) {
+      clearTimeout(tooltipTimeout);
+      tooltipTimeout = null;
+    }
+  };
+
+  // Reset grid view to fit all tiles in viewport
+  const resetGridView = () => {
+    if (!renderer) return;
+
+    // Calculate grid bounds
+    const tileSizeWithGutter = props.tileSize + props.gutter;
+    const cols = Math.max(1, Math.floor((viewportWidth() + props.gutter) / tileSizeWithGutter));
+    const rows = Math.ceil(props.totalItems / cols);
+
+    const gridWidth = cols * tileSizeWithGutter - props.gutter;
+    const gridHeight = rows * tileSizeWithGutter - props.gutter;
+
+    // Calculate zoom to fit
+    const zoomX = viewportWidth() / gridWidth;
+    const zoomY = viewportHeight() / gridHeight;
+    const fitZoom = Math.min(zoomX, zoomY, 1.0); // Don't zoom in past 1:1
+
+    // Calculate pan to center
+    const scaledWidth = gridWidth * fitZoom;
+    const scaledHeight = gridHeight * fitZoom;
+    const panX = (viewportWidth() - scaledWidth) / 2;
+    const panY = (viewportHeight() - scaledHeight) / 2;
+
+    setGridZoom(fitZoom);
+    setGridPanX(panX * dpr());
+    setGridPanY(panY * dpr());
+
+    updateGridTransform();
+    scheduleUpdate();
+  };
+
   // Handle keyboard events
   const handleKeyDown = (e: KeyboardEvent) => {
     if (viewMode() === 'grid') {
-      if (e.key === 'Enter' && props.selectedAssets.length > 0) {
+      if (e.key === '+' || e.key === '=') {
+        e.preventDefault();
+        setGridZoom((gridZoom() * 1.1).clamp(0.1, 10.0));
+        updateGridTransform();
+        scheduleUpdate();
+      } else if (e.key === '-') {
+        e.preventDefault();
+        setGridZoom((gridZoom() / 1.1).clamp(0.1, 10.0));
+        updateGridTransform();
+        scheduleUpdate();
+      } else if (e.key === '0') {
+        e.preventDefault();
+        resetGridView();
+      } else if (e.key === 'ArrowUp') {
+        e.preventDefault();
+        setGridPanY(gridPanY() + 50 * dpr());
+        updateGridTransform();
+        scheduleUpdate();
+      } else if (e.key === 'ArrowDown') {
+        e.preventDefault();
+        setGridPanY(gridPanY() - 50 * dpr());
+        updateGridTransform();
+        scheduleUpdate();
+      } else if (e.key === 'ArrowLeft') {
+        e.preventDefault();
+        setGridPanX(gridPanX() + 50 * dpr());
+        updateGridTransform();
+        scheduleUpdate();
+      } else if (e.key === 'ArrowRight') {
+        e.preventDefault();
+        setGridPanX(gridPanX() - 50 * dpr());
+        updateGridTransform();
+        scheduleUpdate();
+      } else if (e.key === 'Enter' && props.selectedAssets.length > 0) {
         e.preventDefault();
         enterViewerMode();
       } else if (e.key === 'Escape' && props.selectedAssets.length > 0) {
@@ -619,12 +740,6 @@ const GridViewport: Component<GridViewportProps> = (props) => {
       setRendererReady(true);
       console.log('WebGPU renderer initialized');
 
-      // Initialize text canvas
-      if (textCanvasRef) {
-        textCtx = textCanvasRef.getContext('2d');
-        console.log('Text canvas initialized');
-      }
-
       // Setup resize observer
       if (containerRef) {
         const resizeObserver = new ResizeObserver(handleResize);
@@ -632,6 +747,13 @@ const GridViewport: Component<GridViewportProps> = (props) => {
 
         // Initial resize
         handleResize();
+
+        // Set initial grid view (fit to viewport)
+        setTimeout(() => {
+          if (props.totalItems > 0) {
+            resetGridView();
+          }
+        }, 50);
 
         onCleanup(() => {
           resizeObserver.disconnect();
@@ -761,18 +883,29 @@ const GridViewport: Component<GridViewportProps> = (props) => {
                 Loading textures: {texturesLoaded()} / {props.totalItems}
               </span>
             )}
+            <span style="color: #4a90e2;">
+              Zoom: {(gridZoom() * 100).toFixed(0)}%
+            </span>
             <span>Viewport: {viewportWidth().toFixed(0)}x{viewportHeight().toFixed(0)} @ {dpr().toFixed(2)}x</span>
             {props.selectedAssets.length > 0 && (
               <span style="color: #4a90e2;">
                 {props.selectedAssets.length} selected • Press Enter to view
               </span>
             )}
+            <span style="color: #888;">
+              Wheel zoom • Drag pan • +/- • Arrows • 0 reset
+            </span>
           </div>
 
-          <div class="grid-scroller" ref={scrollerRef} onScroll={handleScroll}>
-            <div class="grid-content" style={{ height: `${contentHeight()}px` }} onClick={handleClick}>
-            </div>
-
+          <div
+            class={`grid-content ${isGridDragging() ? 'dragging' : ''}`}
+            onClick={handleClick}
+            onMouseDown={handleGridMouseDown}
+            onMouseMove={handleGridMouseMove}
+            onMouseUp={handleGridMouseUp}
+            onMouseLeave={handleGridMouseLeave}
+            onWheel={handleGridWheel}
+          >
             {/* WebGPU canvas for tiles */}
             <canvas
               id="gpu-grid-canvas"
@@ -788,20 +921,26 @@ const GridViewport: Component<GridViewportProps> = (props) => {
               }}
             />
 
-            {/* 2D canvas for text overlay */}
-            <canvas
-              id="text-overlay-canvas"
-              ref={textCanvasRef}
+            {/* Tooltip overlay */}
+            <div
               style={{
                 position: 'absolute',
-                top: 0,
-                left: 0,
-                width: '100%',
-                height: '100%',
+                padding: '6px 10px',
+                background: 'rgba(0, 0, 0, 0.9)',
+                color: '#fff',
+                'border-radius': '4px',
+                'font-size': '12px',
                 'pointer-events': 'none',
-                'z-index': 2
+                'white-space': 'nowrap',
+                'z-index': 3,
+                display: tooltipVisible() ? 'block' : 'none',
+                left: `${tooltipX()}px`,
+                top: `${tooltipY()}px`,
+                transform: 'translate(10px, 10px)'
               }}
-            />
+            >
+              {tooltipText()}
+            </div>
           </div>
         </>
       ) : (

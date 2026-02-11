@@ -228,6 +228,7 @@ export class WebGPURenderer {
   private instanceBuffer!: GPUBuffer;
   private instanceCapacity = 10000; // Start with capacity for 10k tiles
   private viewportBuffer!: GPUBuffer;
+  private transformBuffer!: GPUBuffer;
 
   // Texture management
   private textureArray!: GPUTexture;
@@ -321,6 +322,22 @@ export class WebGPURenderer {
       size: 2 * 4, // 2 floats (width, height)
       usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
     });
+
+    // Transform uniform buffer (2D transform matrix)
+    this.transformBuffer = this.device.createBuffer({
+      label: 'Transform Uniform Buffer',
+      size: 16 * 4, // 4x4 matrix (16 floats)
+      usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+    });
+
+    // Initialize with identity matrix
+    const identity = new Float32Array([
+      1, 0, 0, 0,
+      0, 1, 0, 0,
+      0, 0, 1, 0,
+      0, 0, 0, 1,
+    ]);
+    this.device.queue.writeBuffer(this.transformBuffer, 0, identity);
   }
 
   /**
@@ -393,6 +410,12 @@ export class WebGPURenderer {
           visibility: GPUShaderStage.FRAGMENT,
           texture: { sampleType: 'float', viewDimension: '2d-array' },
         },
+        // Binding 3: Transform matrix
+        {
+          binding: 3,
+          visibility: GPUShaderStage.VERTEX,
+          buffer: { type: 'uniform' },
+        },
       ],
     });
 
@@ -404,6 +427,7 @@ export class WebGPURenderer {
         { binding: 0, resource: { buffer: this.viewportBuffer } },
         { binding: 1, resource: this.sampler },
         { binding: 2, resource: this.textureView },
+        { binding: 3, resource: { buffer: this.transformBuffer } },
       ],
     });
 
@@ -678,6 +702,21 @@ export class WebGPURenderer {
       params.textureIndex,
     ]);
     this.device.queue.writeBuffer(this.instanceBuffer, 0, viewerData);
+  }
+
+  /**
+   * Update grid transform (zoom and pan)
+   */
+  setGridTransform(zoom: number, panX: number, panY: number): void {
+    // Build 2D transform matrix in column-major order
+    const matrix = new Float32Array([
+      zoom, 0,    0, 0,  // Column 1: scale X
+      0,    zoom, 0, 0,  // Column 2: scale Y
+      0,    0,    1, 0,  // Column 3: unused (2D)
+      panX, panY, 0, 1,  // Column 4: translation
+    ]);
+
+    this.device.queue.writeBuffer(this.transformBuffer, 0, matrix);
   }
 
   /**

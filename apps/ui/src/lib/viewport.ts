@@ -1,5 +1,5 @@
 /**
- * Viewport utilities for calculating visible tiles in a grid layout
+ * Viewport utilities for calculating visible tiles in a grid layout with pan/zoom
  */
 
 export interface TileRect {
@@ -16,47 +16,53 @@ export interface GridConfig {
   gutter: number;
   viewportWidth: number;
   viewportHeight: number;
-  scrollTop: number;
-  scrollLeft: number;
+  zoom: number;
+  panX: number;
+  panY: number;
+  dpr: number;
 }
 
 /**
- * Calculate which tiles are visible in the viewport
- * Uses a simple grid layout with fixed-size tiles
+ * Calculate which tiles are visible in the viewport with pan/zoom support
  */
 export function calculateVisibleTiles(config: GridConfig): TileRect[] {
-  const { totalItems, tileSize, gutter, viewportWidth, viewportHeight, scrollTop, scrollLeft } = config;
+  const { totalItems, tileSize, gutter, viewportWidth, viewportHeight, zoom, panX, panY, dpr } = config;
 
-  // Calculate how many columns fit in the viewport
-  const effectiveTileWidth = tileSize + gutter;
-  const cols = Math.max(1, Math.floor((viewportWidth + gutter) / effectiveTileWidth));
+  const effectiveTileWidth = (tileSize + gutter) * dpr;
+  const effectiveTileHeight = (tileSize + gutter) * dpr;
+  const cols = Math.max(1, Math.floor((viewportWidth * dpr + gutter * dpr) / effectiveTileWidth));
 
-  // Calculate row range that's visible
-  const effectiveTileHeight = tileSize + gutter;
-  const startRow = Math.floor(scrollTop / effectiveTileHeight);
-  const endRow = Math.ceil((scrollTop + viewportHeight) / effectiveTileHeight);
+  // Add margin for smooth panning (preload tiles just outside viewport)
+  const margin = effectiveTileWidth * 2;
 
-  // Calculate column range that's visible
-  const startCol = Math.floor(scrollLeft / effectiveTileWidth);
-  const endCol = Math.min(cols, Math.ceil((scrollLeft + viewportWidth) / effectiveTileWidth));
+  // Calculate world-space viewport bounds
+  const viewportWorldLeft = (0 - panX - margin) / zoom;
+  const viewportWorldTop = (0 - panY - margin) / zoom;
+  const viewportWorldRight = (viewportWidth * dpr - panX + margin) / zoom;
+  const viewportWorldBottom = (viewportHeight * dpr - panY + margin) / zoom;
+
+  // Calculate visible row/column range
+  const startRow = Math.max(0, Math.floor(viewportWorldTop / effectiveTileHeight));
+  const endRow = Math.ceil(viewportWorldBottom / effectiveTileHeight);
+  const startCol = Math.max(0, Math.floor(viewportWorldLeft / effectiveTileWidth));
+  const endCol = Math.min(cols, Math.ceil(viewportWorldRight / effectiveTileWidth));
 
   const visibleTiles: TileRect[] = [];
 
-  // Generate tiles for visible rows and columns
   for (let row = startRow; row <= endRow; row++) {
     for (let col = startCol; col < endCol; col++) {
       const id = row * cols + col;
 
-      // Don't exceed total items
       if (id >= totalItems) break;
 
-      const x = col * effectiveTileWidth;
-      const y = row * effectiveTileHeight;
+      // World-space position (GPU will transform)
+      const worldX = col * effectiveTileWidth;
+      const worldY = row * effectiveTileHeight;
 
       visibleTiles.push({
         id,
-        x: x - scrollLeft,
-        y: y - scrollTop,
+        x: worldX / dpr, // Convert to logical pixels
+        y: worldY / dpr,
         w: tileSize,
         h: tileSize,
       });
@@ -64,20 +70,4 @@ export function calculateVisibleTiles(config: GridConfig): TileRect[] {
   }
 
   return visibleTiles;
-}
-
-/**
- * Calculate total content height for scrolling.
- * Labels are now rendered as overlays on tiles, so no extra space needed.
- */
-export function calculateContentHeight(totalItems: number, tileSize: number, gutter: number, viewportWidth: number): number {
-  if (totalItems === 0) return 0;
-
-  const effectiveTileWidth = tileSize + gutter;
-  const cols = Math.max(1, Math.floor((viewportWidth + gutter) / effectiveTileWidth));
-  const rows = Math.ceil(totalItems / cols);
-  const effectiveTileHeight = tileSize + gutter;
-
-  // Last row doesn't need trailing gutter
-  return (rows - 1) * effectiveTileHeight + tileSize;
 }
