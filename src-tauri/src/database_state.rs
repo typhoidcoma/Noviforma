@@ -66,13 +66,13 @@ impl DatabaseState {
         let folder = db.get_or_create_folder(&path)
             .map_err(|e| format!("Failed to get/create folder: {}", e))?;
 
-        // Set as current folder
-        *self.current_folder_id.lock().unwrap() = Some(folder.id);
+        let folder_id = folder.id;
 
         // Scan directory with folder context
-        let assets = noviforma_core::scan_directory(&path, folder.id);
+        let assets = noviforma_core::scan_directory(&path, folder_id);
 
         let mut result = ScanResult {
+            folder_id,
             indexed: 0,
             errors: 0,
         };
@@ -89,7 +89,7 @@ impl DatabaseState {
         }
 
         // Update folder asset count
-        if let Err(e) = db.update_folder_asset_count(folder.id) {
+        if let Err(e) = db.update_folder_asset_count(folder_id) {
             tracing::warn!("Failed to update folder asset count: {}", e);
         }
 
@@ -98,31 +98,27 @@ impl DatabaseState {
             path.display(),
             result.indexed,
             result.errors,
-            folder.id
+            folder_id
         );
 
         Ok(result)
     }
 
-    /// Generate thumbnails for all assets that don't have one
+    /// Generate thumbnails for the current folder
     pub fn generate_thumbnails(&self) -> Result<ThumbnailResult, String> {
-        self.generate_thumbnails_with_progress(|_, _, _| {})
+        let folder_id = self.current_folder_id.lock().unwrap()
+            .ok_or("No folder selected")?;
+        self.generate_thumbnails_for_folder(folder_id)
     }
 
-    /// Generate thumbnails with progress callback (parallel with rayon)
-    pub fn generate_thumbnails_with_progress<F>(&self, _progress_callback: F) -> Result<ThumbnailResult, String>
-    where
-        F: FnMut(usize, usize, &str),
-    {
+    /// Generate thumbnails for a specific folder by ID (parallel with rayon)
+    pub fn generate_thumbnails_for_folder(&self, folder_id: i64) -> Result<ThumbnailResult, String> {
         use rayon::prelude::*;
 
         // 1. Acquire locks briefly to get data
         let (assets, folder) = {
             let db = self.db.lock().unwrap();
             let db = db.as_ref().ok_or("Database not initialized")?;
-
-            let folder_id = self.current_folder_id.lock().unwrap()
-                .ok_or("No folder selected")?;
 
             let folder = db.get_folder(folder_id)
                 .map_err(|e| format!("Failed to get folder: {}", e))?
@@ -509,6 +505,7 @@ enum ThumbOutcome {
 
 #[derive(Debug, serde::Serialize)]
 pub struct ScanResult {
+    pub folder_id: i64,
     pub indexed: usize,
     pub errors: usize,
 }

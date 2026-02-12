@@ -401,7 +401,7 @@ impl Database {
         let mut stmt = self.conn.prepare(
             "SELECT id, path, filename, file_size, width, height, thumbnail_path, folder_id, created_at, indexed_at
              FROM assets
-             ORDER BY indexed_at DESC",
+             ORDER BY indexed_at DESC, id ASC",
         )?;
 
         let assets = stmt
@@ -846,7 +846,7 @@ impl Database {
             "SELECT id, path, filename, file_size, width, height, thumbnail_path, folder_id, created_at, indexed_at
              FROM assets
              WHERE folder_id = ?1
-             ORDER BY indexed_at DESC",
+             ORDER BY indexed_at DESC, id ASC",
         )?;
 
         let assets = stmt
@@ -1158,7 +1158,7 @@ impl Database {
             sql.push_str(&conditions.join(" AND "));
         }
 
-        sql.push_str(" ORDER BY a.indexed_at DESC");
+        sql.push_str(" ORDER BY a.indexed_at DESC, a.id ASC");
 
         // Suppress unused variable warning
         let _ = param_idx;

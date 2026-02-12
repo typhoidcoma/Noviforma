@@ -123,7 +123,7 @@ const App: Component = () => {
   // Initialize database on mount
   onMount(async () => {
     try {
-      const defaultDbPath = 'noviforma-data/noviforma.db';
+      const defaultDbPath = 'databases/noviforma.db';
 
       console.log('Initializing database with relative path:', defaultDbPath);
       const resolvedPath = await dbInit(defaultDbPath);

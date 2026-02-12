@@ -28,6 +28,7 @@ export interface Folder {
 }
 
 export interface ScanResult {
+  folder_id: number;
   indexed: number;
   errors: number;
 }
@@ -53,10 +54,17 @@ export async function dbScanDirectory(path: string): Promise<ScanResult> {
 }
 
 /**
- * Generate thumbnails for all assets
+ * Generate thumbnails for the current folder's assets
  */
 export async function dbGenerateThumbnails(): Promise<ThumbnailResult> {
   return await invoke('db_generate_thumbnails');
+}
+
+/**
+ * Generate thumbnails for a specific folder's assets
+ */
+export async function dbGenerateThumbnailsForFolder(folderId: number): Promise<ThumbnailResult> {
+  return await invoke('db_generate_thumbnails_for_folder', { folderId });
 }
 
 export interface ProgressInfo {

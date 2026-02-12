@@ -53,14 +53,30 @@ pub fn db_get_thumbnail_progress(
 pub async fn db_generate_thumbnails(
     state: State<'_, DatabaseState>,
 ) -> Result<ThumbnailResult, String> {
-    tracing::info!("Generating thumbnails (async)");
+    tracing::info!("Generating thumbnails for current folder (async)");
 
     let state_clone = state.inner().clone();
 
     let result = tauri::async_runtime::spawn_blocking(move || {
-        state_clone.generate_thumbnails_with_progress(|_, _, _| {
-            // Progress is tracked via shared atomic counters, polled by frontend
-        })
+        state_clone.generate_thumbnails()
+    })
+    .await
+    .map_err(|e| format!("Task join error: {}", e))??;
+
+    Ok(result)
+}
+
+#[tauri::command]
+pub async fn db_generate_thumbnails_for_folder(
+    folder_id: i64,
+    state: State<'_, DatabaseState>,
+) -> Result<ThumbnailResult, String> {
+    tracing::info!("Generating thumbnails for folder {} (async)", folder_id);
+
+    let state_clone = state.inner().clone();
+
+    let result = tauri::async_runtime::spawn_blocking(move || {
+        state_clone.generate_thumbnails_for_folder(folder_id)
     })
     .await
     .map_err(|e| format!("Task join error: {}", e))??;

@@ -1,6 +1,7 @@
 import { Component, createSignal, createEffect, For, onCleanup, Show } from 'solid-js';
 import {
-  dbScanDirectory, dbGenerateThumbnails, dbDeleteFolder, dbGetThumbnailProgress,
+  dbScanDirectory, dbGenerateThumbnails, dbGenerateThumbnailsForFolder,
+  dbDeleteFolder, dbGetThumbnailProgress,
   dbGetAllTagsWithCounts, dbCreateTag, dbDeleteTag,
   dbGetAllShots, dbCreateShot, dbDeleteShot,
   type Folder, type TagWithCount, type Shot,
@@ -225,30 +226,32 @@ const ProjectBrowser: Component<ProjectBrowserProps> = (props) => {
       const result = await dbScanDirectory(directoryPath);
       console.log(`Scan complete: ${result.indexed} indexed, ${result.errors} errors`);
 
-      setScanning(false);
-      setGeneratingThumbs(true);
-      setStatusText('Generating thumbnails...');
+      let thumbResult = { generated: 0, skipped: 0, errors: 0 };
 
-      startPolling();
+      // Only generate thumbnails if new assets were found
+      if (result.indexed > 0) {
+        setScanning(false);
+        setGeneratingThumbs(true);
+        setStatusText('Generating thumbnails...');
 
-      console.log('Generating thumbnails...');
-      const thumbResult = await dbGenerateThumbnails();
-      console.log(`Thumbnails: ${thumbResult.generated} generated, ${thumbResult.skipped} skipped`);
+        startPolling();
+        thumbResult = await dbGenerateThumbnailsForFolder(result.folder_id);
+        console.log(`Thumbnails: ${thumbResult.generated} generated, ${thumbResult.skipped} skipped`);
+        stopPolling();
 
-      stopPolling();
+        await props.onAssetsUpdated();
+        await loadTags();
+      }
 
-      const finalProgress = await dbGetThumbnailProgress();
-      setProgressCurrent(finalProgress.current);
-      setProgressTotal(finalProgress.total);
-
-      await props.onAssetsUpdated();
-      // Also reload tags (counts may have changed)
-      await loadTags();
+      // Select the scanned folder in the UI
+      await props.onFolderSelect(result.folder_id);
 
       const msg = result.indexed > 0
         ? `${result.indexed} assets indexed, ${thumbResult.generated} thumbnails generated`
-        : `No new assets found (${thumbResult.skipped} already cached)`;
+        : 'No new assets found';
       setScanComplete(msg);
+      setScanning(false);
+      setGeneratingThumbs(true); // Keep modal open briefly for the completion message
 
     } catch (error) {
       console.error('Scan failed:', error);
@@ -267,6 +270,9 @@ const ProjectBrowser: Component<ProjectBrowserProps> = (props) => {
     setProgressTotal(0);
     setScanning(true);
 
+    // Remember which folder the user was viewing
+    const previousFolderId = props.currentFolderId;
+
     try {
       let totalIndexed = 0;
       let totalGenerated = 0;
@@ -282,27 +288,37 @@ const ProjectBrowser: Component<ProjectBrowserProps> = (props) => {
         const scanResult = await dbScanDirectory(folder.path);
         totalIndexed += scanResult.indexed;
 
-        // Generate thumbnails (scan already set current_folder_id on backend)
-        setScanning(false);
-        setGeneratingThumbs(true);
-        setStatusText(`Thumbnails: ${folder.name} (${i + 1}/${props.folders.length})...`);
-        startPolling();
-        const thumbResult = await dbGenerateThumbnails();
-        stopPolling();
-        totalGenerated += thumbResult.generated;
-        totalSkipped += thumbResult.skipped;
+        // Only generate thumbnails if new assets were actually found
+        if (scanResult.indexed > 0) {
+          setScanning(false);
+          setGeneratingThumbs(true);
+          setStatusText(`Thumbnails: ${folder.name} (${i + 1}/${props.folders.length})...`);
+          startPolling();
+          const thumbResult = await dbGenerateThumbnailsForFolder(scanResult.folder_id);
+          stopPolling();
+          totalGenerated += thumbResult.generated;
+          totalSkipped += thumbResult.skipped;
+        }
       }
 
       setScanning(false);
-      setGeneratingThumbs(true);
 
-      await props.onAssetsUpdated();
-      await loadTags();
+      // Restore the user's previous folder selection
+      if (previousFolderId !== null) {
+        await props.onFolderSelect(previousFolderId);
+      }
+
+      // Only reload if something changed
+      if (totalIndexed > 0) {
+        await props.onAssetsUpdated();
+        await loadTags();
+      }
 
       const msg = totalIndexed > 0
         ? `${totalIndexed} new assets indexed, ${totalGenerated} thumbnails generated`
-        : `All folders up to date (${totalSkipped} cached)`;
+        : 'All folders up to date';
       setScanComplete(msg);
+      setGeneratingThumbs(true); // Keep modal open briefly for the completion message
 
     } catch (error) {
       console.error('Rescan failed:', error);
