@@ -53,11 +53,11 @@ const Settings: Component<SettingsProps> = (props) => {
                 type="number"
                 class="settings-number"
                 min={0}
-                max={20}
+                max={500}
                 value={draftColumns()}
                 onInput={(e) => {
                   const v = parseInt(e.currentTarget.value);
-                  if (!isNaN(v) && v >= 0 && v <= 20) {
+                  if (!isNaN(v) && v >= 0 && v <= 500) {
                     setDraftColumns(v);
                   }
                 }}

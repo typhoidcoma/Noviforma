@@ -3,7 +3,7 @@
  */
 
 export interface AppSettings {
-  columns: number;        // 0 = auto, 1-20 = fixed column count
+  columns: number;        // 0 = auto, 1-500 = fixed column count
   gutter: number;         // px between tiles (0-64)
   leftPanelWidth: number;
   rightPanelWidth: number;
@@ -12,7 +12,7 @@ export interface AppSettings {
 }
 
 export const DEFAULT_SETTINGS: AppSettings = {
-  columns: 0,
+  columns: 25,
   gutter: 32,
   leftPanelWidth: 240,
   rightPanelWidth: 280,

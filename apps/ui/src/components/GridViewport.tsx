@@ -174,11 +174,13 @@ const GridViewport: Component<GridViewportProps> = (props) => {
             r *= 1.15; g *= 1.15; b *= 1.15;
           }
 
+          // Render thumbnails slightly larger than the grid cell (bleed)
+          const bleed = 2 * dpr();
           return {
-            x: t.x * dpr(),
-            y: t.y * dpr(),
-            w: t.w * dpr(),
-            h: t.h * dpr(),
+            x: t.x * dpr() - bleed,
+            y: t.y * dpr() - bleed,
+            w: t.w * dpr() + 2 * bleed,
+            h: t.h * dpr() + 2 * bleed,
             textureIndex,
             r,
             g,
@@ -203,7 +205,7 @@ const GridViewport: Component<GridViewportProps> = (props) => {
               w: t.w * dpr() + 2 * borderWidth,
               h: t.h * dpr() + 2 * borderWidth,
               textureIndex: -1,
-              r: 0.35, g: 0.71, b: 0.78, a: 1.0, // Teal #E2FEFD
+              r: 1.0, g: 1.0, b: 1.0, a: 0.8, // Teal #E2FEFD
             });
           } else if (isLassoPreview) {
             // Translucent teal background for lasso preview
@@ -925,41 +927,59 @@ const GridViewport: Component<GridViewportProps> = (props) => {
     scheduleUpdate();
   };
 
-  // Focus on the first selected tile (zoom and pan to center it)
-  const focusOnSelectedTile = () => {
+  // Focus on selected tiles — zoom/pan so the selection bounding box fills the viewport
+  const focusOnSelection = () => {
     if (!renderer || props.selectedAssets.length === 0) return;
 
-    const tileId = props.selectedAssets[0];
-    if (tileId < 0 || tileId >= props.totalItems) return;
-
-    // Calculate grid layout
+    // Calculate grid layout (must match calculateVisibleTiles logic)
     const tileSizeWithGutter = (props.tileSize + props.gutter) * dpr();
-    const cols = Math.max(1, Math.floor((viewportWidth() * dpr() + props.gutter * dpr()) / tileSizeWithGutter));
+    const cols = props.columns && props.columns > 0
+      ? props.columns
+      : Math.max(1, Math.floor((viewportWidth() * dpr() + props.gutter * dpr()) / tileSizeWithGutter));
+    const paddingPx = GRID_PADDING * dpr();
+    const tileSizePx = props.tileSize * dpr();
 
-    // Calculate tile position in grid
-    const col = tileId % cols;
-    const row = Math.floor(tileId / cols);
+    // Compute bounding box of all selected tiles in world space
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
 
-    // Calculate world position of tile center (with grid padding offset)
-    const tileWorldX = col * tileSizeWithGutter + GRID_PADDING * dpr();
-    const tileWorldY = row * tileSizeWithGutter + GRID_PADDING * dpr();
-    const tileCenterX = tileWorldX + (props.tileSize * dpr()) / 2;
-    const tileCenterY = tileWorldY + (props.tileSize * dpr()) / 2;
+    for (const tileId of props.selectedAssets) {
+      if (tileId < 0 || tileId >= props.totalItems) continue;
 
-    // Calculate viewport center in screen space
-    const viewportCenterX = (viewportWidth() * dpr()) / 2;
-    const viewportCenterY = (viewportHeight() * dpr()) / 2;
+      const col = tileId % cols;
+      const row = Math.floor(tileId / cols);
 
-    // Zoom so the tile fills the viewport vertically
-    const focusZoom = viewportHeight() / props.tileSize;
+      const worldX = col * tileSizeWithGutter + paddingPx;
+      const worldY = row * tileSizeWithGutter + paddingPx;
 
-    // Calculate pan to center the tile
-    // Forward: screen = world * zoom + pan
-    // We want: screen = viewportCenter, world = tileCenter
-    // Therefore: pan = viewportCenter - tileCenter * zoom
-    const newPanX = viewportCenterX - tileCenterX * focusZoom;
-    const newPanY = viewportCenterY - tileCenterY * focusZoom;
+      minX = Math.min(minX, worldX);
+      minY = Math.min(minY, worldY);
+      maxX = Math.max(maxX, worldX + tileSizePx);
+      maxY = Math.max(maxY, worldY + tileSizePx);
+    }
 
+    if (!isFinite(minX)) return;
+
+    const selectionWidth = maxX - minX;
+    const selectionHeight = maxY - minY;
+    const selectionCenterX = (minX + maxX) / 2;
+    const selectionCenterY = (minY + maxY) / 2;
+
+    // Viewport size in device pixels
+    const vpW = viewportWidth() * dpr();
+    const vpH = viewportHeight() * dpr();
+
+    // Add some padding around the selection (5% on each side)
+    const padding = 0.05;
+    const zoomX = vpW / (selectionWidth * (1 + 2 * padding));
+    const zoomY = vpH / (selectionHeight * (1 + 2 * padding));
+    const focusZoom = Math.min(zoomX, zoomY);
+
+    // Forward transform: screen = world * zoom + pan
+    // Center selection in viewport: pan = viewportCenter - selectionCenter * zoom
+    const newPanX = vpW / 2 - selectionCenterX * focusZoom;
+    const newPanY = vpH / 2 - selectionCenterY * focusZoom;
+
+    cancelMomentum();
     setGridZoom(focusZoom);
     setGridPanX(newPanX);
     setGridPanY(newPanY);
@@ -986,7 +1006,7 @@ const GridViewport: Component<GridViewportProps> = (props) => {
         resetGridView();
       } else if (e.key === 'f' || e.key === 'F') {
         e.preventDefault();
-        focusOnSelectedTile();
+        focusOnSelection();
       } else if (e.key === 'ArrowUp') {
         e.preventDefault();
         setGridPanY(gridPanY() + 50 * dpr());

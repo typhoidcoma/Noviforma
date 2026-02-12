@@ -64,11 +64,17 @@ impl ThumbnailGenerator {
         let img = image::open(asset_path)?;
         let (w, h) = img.dimensions();
 
-        // If image is already small enough, just save directly in original format
-        if w <= THUMBNAIL_SIZE && h <= THUMBNAIL_SIZE {
+        // Center-crop to square (fills tile completely, no letterboxing)
+        let crop_size = w.min(h);
+        let crop_x = (w - crop_size) / 2;
+        let crop_y = (h - crop_size) / 2;
+        let cropped = img.crop_imm(crop_x, crop_y, crop_size, crop_size);
+
+        // If cropped square is already small enough, save directly
+        if crop_size <= THUMBNAIL_SIZE {
             let thumb_filename = format!("{}.{}", asset_id, ext);
             let thumb_path = folder_cache.join(thumb_filename);
-            img.save_with_format(&thumb_path, format)?;
+            cropped.save_with_format(&thumb_path, format)?;
 
             tracing::debug!(
                 "Saved small image as thumbnail: {} -> {} (folder: {}, format: {:?})",
@@ -80,23 +86,17 @@ impl ThumbnailGenerator {
             return Ok((thumb_path, w, h));
         }
 
-        // Calculate aspect-preserving target dimensions
-        let scale = (THUMBNAIL_SIZE as f64 / w as f64)
-            .min(THUMBNAIL_SIZE as f64 / h as f64);
-        let tw = (w as f64 * scale).round().max(1.0) as u32;
-        let th = (h as f64 * scale).round().max(1.0) as u32;
-
-        // Convert to RGBA8 for fast_image_resize
-        let rgba = img.into_rgba8();
+        // Resize square to THUMBNAIL_SIZE x THUMBNAIL_SIZE
+        let rgba = cropped.into_rgba8();
         let src = fir::images::Image::from_vec_u8(
-            w, h,
+            crop_size, crop_size,
             rgba.into_raw(),
             fir::PixelType::U8x4,
         ).map_err(|e| ImageError::IoError(
             std::io::Error::new(std::io::ErrorKind::InvalidData, e.to_string())
         ))?;
 
-        let mut dst = fir::images::Image::new(tw, th, fir::PixelType::U8x4);
+        let mut dst = fir::images::Image::new(THUMBNAIL_SIZE, THUMBNAIL_SIZE, fir::PixelType::U8x4);
 
         let mut resizer = fir::Resizer::new();
         resizer.resize(&src, &mut dst, &fir::ResizeOptions::new())
@@ -105,7 +105,7 @@ impl ThumbnailGenerator {
             ))?;
 
         // Convert back to image::RgbaImage and save in original format
-        let result = image::RgbaImage::from_raw(tw, th, dst.into_vec())
+        let result = image::RgbaImage::from_raw(THUMBNAIL_SIZE, THUMBNAIL_SIZE, dst.into_vec())
             .ok_or_else(|| ImageError::IoError(
                 std::io::Error::new(std::io::ErrorKind::InvalidData, "Failed to reconstruct image buffer")
             ))?;
@@ -120,7 +120,7 @@ impl ThumbnailGenerator {
             "Generated thumbnail: {} -> {} ({}x{} -> {}x{}, folder: {}, format: {:?})",
             asset_path.display(),
             thumb_path.display(),
-            w, h, tw, th,
+            w, h, THUMBNAIL_SIZE, THUMBNAIL_SIZE,
             folder_hash,
             format
         );
