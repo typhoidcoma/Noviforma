@@ -203,7 +203,7 @@ const GridViewport: Component<GridViewportProps> = (props) => {
               w: t.w * dpr() + 2 * borderWidth,
               h: t.h * dpr() + 2 * borderWidth,
               textureIndex: -1,
-              r: 0.35, g: 0.71, b: 0.78, a: 1.0, // Teal #5AB6C6
+              r: 0.35, g: 0.71, b: 0.78, a: 1.0, // Teal #E2FEFD
             });
           } else if (isLassoPreview) {
             // Translucent teal background for lasso preview
@@ -623,7 +623,12 @@ const GridViewport: Component<GridViewportProps> = (props) => {
    * Start momentum animation with current velocity
    */
   const startMomentum = () => {
-    cancelMomentum();
+    // Cancel any existing animation RAF without resetting velocity
+    // (cancelMomentum() would zero the velocities we just set)
+    if (momentumRafId !== null) {
+      cancelAnimationFrame(momentumRafId);
+      momentumRafId = null;
+    }
 
     setIsMomentumActive(true);
 
@@ -1219,16 +1224,16 @@ const GridViewport: Component<GridViewportProps> = (props) => {
             <span>Visible: {visibleTileCount()} tiles</span>
             <span>Total: {props.totalItems.toLocaleString()} items</span>
             {loadingTextures() && (
-              <span style="color: #5AB6C6;">
+              <span style="color: #E2FEFD;">
                 Loading textures: {texturesLoaded()} / {props.totalItems}
               </span>
             )}
-            <span style="color: #5AB6C6;">
+            <span style="color: #E2FEFD;">
               Zoom: {(gridZoom() * 100).toFixed(0)}%
             </span>
             <span>Viewport: {viewportWidth().toFixed(0)}x{viewportHeight().toFixed(0)} @ {dpr().toFixed(2)}x</span>
             {props.selectedAssets.length > 0 && (
-              <span style="color: #5AB6C6;">
+              <span style="color: #E2FEFD;">
                 {props.selectedAssets.length} selected
               </span>
             )}
@@ -1296,7 +1301,7 @@ const GridViewport: Component<GridViewportProps> = (props) => {
       ) : (
         <>
           <div class="grid-viewport-info" style="background: #1a2228;">
-            <span style="color: #5AB6C6;">
+            <span style="color: #E2FEFD;">
               {(() => {
                 const asset = props.assets[viewerIndex()];
                 return asset?.filename || 'Unknown';
@@ -1316,7 +1321,7 @@ const GridViewport: Component<GridViewportProps> = (props) => {
               {viewerIndex() === 0 && <span style="color: #6a7060;"> (First)</span>}
               {viewerIndex() === props.totalItems - 1 && <span style="color: #6a7060;"> (Last)</span>}
             </span>
-            <span style="color: #5AB6C6;">Zoom: {(viewerZoom() * 100).toFixed(0)}%</span>
+            <span style="color: #E2FEFD;">Zoom: {(viewerZoom() * 100).toFixed(0)}%</span>
             <span style="color: #8a8e7a;">← → navigate • Double-click zoom • Wheel • Drag • PgUp/PgDn • Home/End • Esc</span>
           </div>
 

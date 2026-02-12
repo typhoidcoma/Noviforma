@@ -41,7 +41,7 @@
 
 .lasso-rect {
   position: absolute;
-  border: 1px solid #5AB6C6;
+  border: 1px solid #E2FEFD;
   background: rgba(90, 182, 198, 0.15);
   pointer-events: none;
   z-index: 2;
