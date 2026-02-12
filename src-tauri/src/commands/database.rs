@@ -2,17 +2,24 @@ use crate::database_state::{DatabaseState, ScanResult, ThumbnailResult};
 use noviforma_core::{Asset, AssetFilter, Tag, TagWithCount, Note, Rating, Folder, Shot, ShotAsset};
 use std::path::PathBuf;
 use std::sync::atomic::Ordering;
-use tauri::State;
+use tauri::{Manager, State};
 
 #[tauri::command]
 pub fn db_init(
     db_path: String,
     state: State<'_, DatabaseState>,
+    app_handle: tauri::AppHandle,
 ) -> Result<String, String> {
-    tracing::info!("Initializing database at: {}", db_path);
-    let path = PathBuf::from(db_path);
-    state.init(path)?;
-    Ok("Database initialized".to_string())
+    // Resolve path relative to the app's data directory for a stable, writable location
+    let base_dir = app_handle.path().app_data_dir()
+        .map_err(|e| format!("Failed to get app data directory: {}", e))?;
+
+    let full_path = base_dir.join(&db_path);
+
+    tracing::info!("Initializing database at: {}", full_path.display());
+    state.init(full_path.clone())?;
+
+    Ok(full_path.to_string_lossy().to_string())
 }
 
 #[tauri::command]

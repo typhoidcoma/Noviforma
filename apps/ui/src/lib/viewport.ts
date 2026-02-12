@@ -20,6 +20,7 @@ export interface GridConfig {
   panX: number;
   panY: number;
   dpr: number;
+  columnsOverride?: number; // 0 or undefined = auto, 1-20 = fixed
 }
 
 /** Grid padding: inset from top-left in logical pixels */
@@ -33,7 +34,9 @@ export function calculateVisibleTiles(config: GridConfig): TileRect[] {
 
   const effectiveTileWidth = (tileSize + gutter) * dpr;
   const effectiveTileHeight = (tileSize + gutter) * dpr;
-  const cols = Math.max(1, Math.floor((viewportWidth * dpr + gutter * dpr) / effectiveTileWidth));
+  const cols = config.columnsOverride && config.columnsOverride > 0
+    ? config.columnsOverride
+    : Math.max(1, Math.floor((viewportWidth * dpr + gutter * dpr) / effectiveTileWidth));
   const paddingPx = GRID_PADDING * dpr;
 
   // Add margin for smooth panning (preload tiles just outside viewport)

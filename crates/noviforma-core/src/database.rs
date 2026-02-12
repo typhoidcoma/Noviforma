@@ -18,7 +18,23 @@ impl Database {
             .query_row("PRAGMA user_version", [], |row| row.get(0))
             .unwrap_or(0);
 
-        // Run migrations if needed
+        // Check if this is a truly fresh database (no tables at all)
+        let has_tables: i64 = conn.query_row(
+            "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='assets'",
+            [],
+            |row| row.get(0),
+        )?;
+
+        if has_tables == 0 {
+            // Fresh database — create schema directly, skip migrations
+            let db = Self { conn };
+            db.init_schema()?;
+            db.conn.execute("PRAGMA user_version = 3", [])?;
+            tracing::info!("Fresh database created with schema v3");
+            return Ok(db);
+        }
+
+        // Existing database — run migrations if needed
         if version < 2 {
             Self::migrate_to_v2(&conn)?;
             conn.execute("PRAGMA user_version = 2", [])?;
@@ -340,15 +356,12 @@ impl Database {
         Ok(())
     }
 
-    /// Insert a new asset
-    pub fn insert_asset(&self, asset: &Asset) -> Result<i64> {
+    /// Insert a new asset (skips if path already exists)
+    /// Returns true if a new row was inserted, false if it already existed
+    pub fn insert_asset(&self, asset: &Asset) -> Result<bool> {
         self.conn.execute(
-            "INSERT INTO assets (path, filename, file_size, width, height, thumbnail_path, folder_id, created_at, indexed_at)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)
-             ON CONFLICT(path) DO UPDATE SET
-                file_size = excluded.file_size,
-                folder_id = excluded.folder_id,
-                indexed_at = excluded.indexed_at",
+            "INSERT OR IGNORE INTO assets (path, filename, file_size, width, height, thumbnail_path, folder_id, created_at, indexed_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
             params![
                 asset.path,
                 asset.filename,
@@ -362,7 +375,7 @@ impl Database {
             ],
         )?;
 
-        Ok(self.conn.last_insert_rowid())
+        Ok(self.conn.changes() > 0)
     }
 
     /// Update asset thumbnail path

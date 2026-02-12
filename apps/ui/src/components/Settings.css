@@ -1,0 +1,149 @@
+.settings-panel {
+  min-width: 380px;
+}
+
+.settings-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 20px;
+}
+
+.settings-header h3 {
+  margin: 0;
+  font-size: 16px;
+  color: #E2FEFD;
+}
+
+.settings-close {
+  background: none;
+  border: none;
+  color: #8a8e7a;
+  font-size: 22px;
+  cursor: pointer;
+  padding: 0 4px;
+  line-height: 1;
+}
+
+.settings-close:hover {
+  color: #E2FEFD;
+}
+
+.settings-section {
+  margin-bottom: 20px;
+}
+
+.settings-section:last-child {
+  margin-bottom: 0;
+}
+
+.settings-section h4 {
+  margin: 0 0 12px;
+  font-size: 12px;
+  color: #8a8e7a;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.settings-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 0;
+}
+
+.settings-row label {
+  font-size: 13px;
+  color: #E2FEFD;
+  min-width: 80px;
+}
+
+.settings-control {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex: 1;
+  justify-content: flex-end;
+}
+
+.settings-number {
+  width: 60px;
+  padding: 4px 8px;
+  background: #3B4E57;
+  color: #E2FEFD;
+  border: 1px solid #4a5e67;
+  border-radius: 4px;
+  font-size: 13px;
+  text-align: center;
+  font-family: 'Consolas', 'Monaco', monospace;
+}
+
+.settings-number:focus {
+  outline: none;
+  border-color: #5AB6C6;
+}
+
+.settings-range {
+  width: 140px;
+  accent-color: #5AB6C6;
+}
+
+.settings-value {
+  font-size: 12px;
+  color: #8a8e7a;
+  min-width: 36px;
+  text-align: right;
+  font-family: 'Consolas', 'Monaco', monospace;
+}
+
+.settings-hint {
+  font-size: 12px;
+  color: #8a8e7a;
+}
+
+.settings-path {
+  font-size: 12px;
+  color: #8a8e7a;
+  font-family: 'Consolas', 'Monaco', monospace;
+  word-break: break-all;
+}
+
+.settings-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 24px;
+  padding-top: 16px;
+  border-top: 1px solid #4a5e67;
+}
+
+.settings-btn {
+  padding: 8px 20px;
+  border-radius: 4px;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.settings-btn-cancel {
+  background: #2a3a42;
+  color: #8a8e7a;
+  border: 1px solid #4a5e67;
+}
+
+.settings-btn-cancel:hover {
+  background: #3B4E57;
+  color: #E2FEFD;
+}
+
+.settings-btn-apply {
+  background: #5AB6C6;
+  color: #0d1a1f;
+  border: 1px solid #5AB6C6;
+}
+
+.settings-btn-apply:hover {
+  background: #6dc8d6;
+  border-color: #6dc8d6;
+}

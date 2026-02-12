@@ -12,6 +12,7 @@ interface GridViewportProps {
   totalItems: number;
   tileSize: number;
   gutter: number;
+  columns?: number;
   selectedAssets: number[];
   onSelectionChange: (selectedIds: number[]) => void;
   resetTrigger?: number;
@@ -96,6 +97,7 @@ const GridViewport: Component<GridViewportProps> = (props) => {
           panX: gridPanX(),
           panY: gridPanY(),
           dpr: dpr(),
+          columnsOverride: props.columns,
         });
 
         setVisibleTileCount(tiles.length);
@@ -356,7 +358,9 @@ const GridViewport: Component<GridViewportProps> = (props) => {
     const d = dpr();
     const tileSizeWithGutter = (props.tileSize + props.gutter) * d;
     const tileSizePx = props.tileSize * d;
-    const cols = Math.max(1, Math.floor((viewportWidth() * d + props.gutter * d) / tileSizeWithGutter));
+    const cols = props.columns && props.columns > 0
+      ? props.columns
+      : Math.max(1, Math.floor((viewportWidth() * d + props.gutter * d) / tileSizeWithGutter));
     const padding = GRID_PADDING * d;
 
     const result: number[] = [];

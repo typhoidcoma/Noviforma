@@ -79,7 +79,8 @@ impl DatabaseState {
 
         for asset in assets {
             match db.insert_asset(&asset) {
-                Ok(_) => result.indexed += 1,
+                Ok(true) => result.indexed += 1,
+                Ok(false) => {} // Already existed, skip
                 Err(e) => {
                     tracing::warn!("Failed to insert asset: {}", e);
                     result.errors += 1;

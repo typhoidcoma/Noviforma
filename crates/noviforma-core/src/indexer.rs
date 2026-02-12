@@ -39,9 +39,11 @@ impl Indexer {
                         if let Some(ext) = entry.path().extension() {
                             if IMAGE_EXTENSIONS.contains(&ext.to_string_lossy().to_lowercase().as_ref()) {
                                 match self.index_file(entry.path()) {
-                                    Ok(asset_id) => {
-                                        result.indexed += 1;
-                                        tracing::debug!("Indexed: {} (ID: {})", entry.path().display(), asset_id);
+                                    Ok(was_new) => {
+                                        if was_new {
+                                            result.indexed += 1;
+                                            tracing::debug!("Indexed: {}", entry.path().display());
+                                        }
                                     }
                                     Err(e) => {
                                         result.errors += 1;
@@ -68,8 +70,8 @@ impl Indexer {
         Ok(result)
     }
 
-    /// Index a single file
-    fn index_file<P: AsRef<Path>>(&self, path: P) -> Result<i64, String> {
+    /// Index a single file. Returns true if newly inserted, false if already existed.
+    fn index_file<P: AsRef<Path>>(&self, path: P) -> Result<bool, String> {
         let path = path.as_ref();
 
         // Get file metadata
@@ -93,11 +95,9 @@ impl Indexer {
         asset.width = width;
         asset.height = height;
 
-        // Insert into database
-        let asset_id = self.db.insert_asset(&asset)
-            .map_err(|e| format!("Database error: {}", e))?;
-
-        Ok(asset_id)
+        // Insert into database (returns true if new, false if already existed)
+        self.db.insert_asset(&asset)
+            .map_err(|e| format!("Database error: {}", e))
     }
 
     /// Get total number of indexed assets

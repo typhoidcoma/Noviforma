@@ -18,6 +18,7 @@ interface ProjectBrowserProps {
   onShotFilterChange: (shotId: number | null) => void;
   activeTagFilters: number[];
   activeShotFilter: number | null;
+  onSettingsClick: () => void;
 }
 
 const ProjectBrowser: Component<ProjectBrowserProps> = (props) => {
@@ -258,6 +259,60 @@ const ProjectBrowser: Component<ProjectBrowserProps> = (props) => {
     }
   };
 
+  const handleRescanAll = async () => {
+    if (!props.dbInitialized || scanning() || props.folders.length === 0) return;
+
+    setScanComplete(null);
+    setProgressCurrent(0);
+    setProgressTotal(0);
+    setScanning(true);
+
+    try {
+      let totalIndexed = 0;
+      let totalGenerated = 0;
+      let totalSkipped = 0;
+
+      for (let i = 0; i < props.folders.length; i++) {
+        const folder = props.folders[i];
+
+        // Scan folder for new files
+        setScanning(true);
+        setGeneratingThumbs(false);
+        setStatusText(`Scanning ${folder.name} (${i + 1}/${props.folders.length})...`);
+        const scanResult = await dbScanDirectory(folder.path);
+        totalIndexed += scanResult.indexed;
+
+        // Generate thumbnails (scan already set current_folder_id on backend)
+        setScanning(false);
+        setGeneratingThumbs(true);
+        setStatusText(`Thumbnails: ${folder.name} (${i + 1}/${props.folders.length})...`);
+        startPolling();
+        const thumbResult = await dbGenerateThumbnails();
+        stopPolling();
+        totalGenerated += thumbResult.generated;
+        totalSkipped += thumbResult.skipped;
+      }
+
+      setScanning(false);
+      setGeneratingThumbs(true);
+
+      await props.onAssetsUpdated();
+      await loadTags();
+
+      const msg = totalIndexed > 0
+        ? `${totalIndexed} new assets indexed, ${totalGenerated} thumbnails generated`
+        : `All folders up to date (${totalSkipped} cached)`;
+      setScanComplete(msg);
+
+    } catch (error) {
+      console.error('Rescan failed:', error);
+      stopPolling();
+      alert(`Rescan failed: ${error}`);
+      setScanning(false);
+      setGeneratingThumbs(false);
+    }
+  };
+
   return (
     <div class="project-browser">
       {/* Progress Modal */}
@@ -299,7 +354,7 @@ const ProjectBrowser: Component<ProjectBrowserProps> = (props) => {
 
       <div class="browser-header">
         <h3>Project</h3>
-        <button class="btn-icon" title="Project Settings">⚙</button>
+        <button class="btn-icon" title="Project Settings" onClick={props.onSettingsClick}>⚙</button>
       </div>
 
       <div class="browser-tabs">
@@ -494,9 +549,9 @@ const ProjectBrowser: Component<ProjectBrowserProps> = (props) => {
       <div class="browser-footer">
         <button
           class="btn-footer"
-          onClick={handleScanDirectory}
-          disabled={!props.dbInitialized || scanning()}
-          title="Scan a directory for images"
+          onClick={handleRescanAll}
+          disabled={!props.dbInitialized || scanning() || props.folders.length === 0}
+          title="Re-scan all folders for new assets"
         >
           <span>⟳</span> Scan Assets
         </button>

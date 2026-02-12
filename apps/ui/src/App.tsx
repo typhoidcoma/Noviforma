@@ -2,6 +2,7 @@ import { Component, createSignal, createEffect, on, onMount, onCleanup, Show } f
 import GridViewport from './components/GridViewport';
 import ProjectBrowser from './components/ProjectBrowser';
 import Inspector from './components/Inspector';
+import Settings from './components/Settings';
 import {
   dbInit,
   dbGetAllFolders,
@@ -14,16 +15,22 @@ import {
   type Folder,
   type Shot,
 } from './lib/database';
+import { loadSettings, saveSettings } from './lib/settings';
 import './App.css';
 
 const App: Component = () => {
   const tileSize = 128;
-  const gutter = 32;
   const [selectedAssets, setSelectedAssets] = createSignal<number[]>([]);
 
-  // Resizable panel widths
-  const [leftPanelWidth, setLeftPanelWidth] = createSignal(240);
-  const [rightPanelWidth, setRightPanelWidth] = createSignal(280);
+  // Settings (loaded from localStorage)
+  const stored = loadSettings();
+  const [columns, setColumns] = createSignal(stored.columns);
+  const [gutter, setGutter] = createSignal(stored.gutter);
+  const [showSettings, setShowSettings] = createSignal(false);
+
+  // Resizable panel widths (initialized from settings)
+  const [leftPanelWidth, setLeftPanelWidth] = createSignal(stored.leftPanelWidth);
+  const [rightPanelWidth, setRightPanelWidth] = createSignal(stored.rightPanelWidth);
 
   let dragging: 'left' | 'right' | null = null;
   let dragStartX = 0;
@@ -53,6 +60,8 @@ const App: Component = () => {
     dragging = null;
     document.removeEventListener('mousemove', onResizeMove);
     document.removeEventListener('mouseup', onResizeEnd);
+    // Persist panel widths
+    persistSettings();
   };
 
   onCleanup(() => {
@@ -115,11 +124,11 @@ const App: Component = () => {
   onMount(async () => {
     try {
       const defaultDbPath = 'noviforma-data/noviforma.db';
-      setDbPath(defaultDbPath);
 
-      console.log('Initializing database at:', defaultDbPath);
-      const result = await dbInit(defaultDbPath);
-      console.log('Database init result:', result);
+      console.log('Initializing database with relative path:', defaultDbPath);
+      const resolvedPath = await dbInit(defaultDbPath);
+      console.log('Database initialized at:', resolvedPath);
+      setDbPath(resolvedPath);
 
       setDbInitialized(true);
 
@@ -209,6 +218,22 @@ const App: Component = () => {
     setFilterShotId(null);
   };
 
+  // Settings persistence
+  const persistSettings = () => {
+    saveSettings({
+      columns: columns(),
+      gutter: gutter(),
+      leftPanelWidth: leftPanelWidth(),
+      rightPanelWidth: rightPanelWidth(),
+    });
+  };
+
+  const handleApplySettings = (newColumns: number, newGutter: number) => {
+    setColumns(newColumns);
+    setGutter(newGutter);
+    persistSettings();
+  };
+
   return (
     <div class="app-container" style={{
       'grid-template-columns': `${leftPanelWidth()}px 4px 1fr 4px ${rightPanelWidth()}px`
@@ -224,6 +249,7 @@ const App: Component = () => {
           onShotFilterChange={setFilterShotId}
           activeTagFilters={filterTagIds()}
           activeShotFilter={filterShotId()}
+          onSettingsClick={() => setShowSettings(true)}
         />
       </aside>
 
@@ -269,7 +295,8 @@ const App: Component = () => {
               assets={assets()}
               totalItems={totalItems()}
               tileSize={tileSize}
-              gutter={gutter}
+              gutter={gutter()}
+              columns={columns()}
               selectedAssets={selectedAssets()}
               onSelectionChange={setSelectedAssets}
               resetTrigger={resetTrigger()}
@@ -293,6 +320,15 @@ const App: Component = () => {
           allShots={shots()}
         />
       </aside>
+
+      <Settings
+        show={showSettings()}
+        onClose={() => setShowSettings(false)}
+        columns={columns()}
+        gutter={gutter()}
+        dbPath={dbPath()}
+        onApply={handleApplySettings}
+      />
     </div>
   );
 };
