@@ -168,6 +168,18 @@ const App: Component = () => {
     { defer: true }
   ));
 
+  // Auto-reset grid view when filters change
+  createEffect(on(
+    () => [searchQuery(), filterTagIds(), filterMinRating(), filterShotId(), currentFolderId()],
+    () => {
+      // Trigger grid reset after filters are applied
+      setTimeout(() => {
+        setResetTrigger(resetTrigger() + 1);
+      }, 200); // Small delay to let assets load first
+    },
+    { defer: true }
+  ));
+
   const loadFolders = async () => {
     try {
       const allFolders = await dbGetAllFolders();

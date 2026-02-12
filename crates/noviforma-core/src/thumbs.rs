@@ -45,21 +45,37 @@ impl ThumbnailGenerator {
         std::fs::create_dir_all(&folder_cache)
             .map_err(|e| ImageError::IoError(e))?;
 
+        // Detect original format from file extension
+        let format = ImageFormat::from_path(asset_path)
+            .unwrap_or(ImageFormat::Jpeg); // Default to JPEG if unknown
+
+        // Get file extension for thumbnail
+        let ext = match format {
+            ImageFormat::Png => "png",
+            ImageFormat::Jpeg => "jpg",
+            ImageFormat::WebP => "webp",
+            ImageFormat::Gif => "gif",
+            ImageFormat::Bmp => "bmp",
+            ImageFormat::Tiff => "tiff",
+            _ => "jpg", // Fallback for exotic formats
+        };
+
         // Load image
         let img = image::open(asset_path)?;
         let (w, h) = img.dimensions();
 
-        // If image is already small enough, just save directly
+        // If image is already small enough, just save directly in original format
         if w <= THUMBNAIL_SIZE && h <= THUMBNAIL_SIZE {
-            let thumb_filename = format!("{}.jpg", asset_id);
+            let thumb_filename = format!("{}.{}", asset_id, ext);
             let thumb_path = folder_cache.join(thumb_filename);
-            img.save_with_format(&thumb_path, ImageFormat::Jpeg)?;
+            img.save_with_format(&thumb_path, format)?;
 
             tracing::debug!(
-                "Saved small image as thumbnail: {} -> {} (folder: {})",
+                "Saved small image as thumbnail: {} -> {} (folder: {}, format: {:?})",
                 asset_path.display(),
                 thumb_path.display(),
-                folder_hash
+                folder_hash,
+                format
             );
             return Ok((thumb_path, w, h));
         }
@@ -88,39 +104,57 @@ impl ThumbnailGenerator {
                 std::io::Error::new(std::io::ErrorKind::Other, e.to_string())
             ))?;
 
-        // Convert back to image::RgbaImage and save as JPEG
+        // Convert back to image::RgbaImage and save in original format
         let result = image::RgbaImage::from_raw(tw, th, dst.into_vec())
             .ok_or_else(|| ImageError::IoError(
                 std::io::Error::new(std::io::ErrorKind::InvalidData, "Failed to reconstruct image buffer")
             ))?;
 
-        let thumb_filename = format!("{}.jpg", asset_id);
+        let thumb_filename = format!("{}.{}", asset_id, ext);
         let thumb_path = folder_cache.join(thumb_filename);
 
         DynamicImage::ImageRgba8(result)
-            .save_with_format(&thumb_path, ImageFormat::Jpeg)?;
+            .save_with_format(&thumb_path, format)?;
 
         tracing::debug!(
-            "Generated thumbnail: {} -> {} ({}x{} -> {}x{}, folder: {})",
+            "Generated thumbnail: {} -> {} ({}x{} -> {}x{}, folder: {}, format: {:?})",
             asset_path.display(),
             thumb_path.display(),
             w, h, tw, th,
-            folder_hash
+            folder_hash,
+            format
         );
 
         Ok((thumb_path, w, h))
     }
 
     /// Check if thumbnail exists for an asset in a specific folder
+    /// Checks for any supported image format extension
     pub fn exists(&self, asset_id: i64, folder_hash: &str) -> bool {
-        let thumb_path = self.get_path(asset_id, folder_hash);
-        thumb_path.exists()
+        let folder_cache = self.get_folder_cache_dir(folder_hash);
+        // Check for common extensions since we preserve original format
+        for ext in &["jpg", "jpeg", "png", "webp", "gif", "bmp", "tiff"] {
+            let thumb_path = folder_cache.join(format!("{}.{}", asset_id, ext));
+            if thumb_path.exists() {
+                return true;
+            }
+        }
+        false
     }
 
-    /// Get thumbnail path for an asset in a specific folder (doesn't check if it exists)
+    /// Get thumbnail path for an asset in a specific folder
+    /// Searches for existing thumbnail with any supported format
     pub fn get_path(&self, asset_id: i64, folder_hash: &str) -> PathBuf {
-        let thumb_filename = format!("{}.jpg", asset_id);
-        self.get_folder_cache_dir(folder_hash).join(thumb_filename)
+        let folder_cache = self.get_folder_cache_dir(folder_hash);
+        // Check for existing thumbnail with any extension
+        for ext in &["jpg", "jpeg", "png", "webp", "gif", "bmp", "tiff"] {
+            let thumb_path = folder_cache.join(format!("{}.{}", asset_id, ext));
+            if thumb_path.exists() {
+                return thumb_path;
+            }
+        }
+        // Default to .jpg if not found (for compatibility)
+        folder_cache.join(format!("{}.jpg", asset_id))
     }
 }
 

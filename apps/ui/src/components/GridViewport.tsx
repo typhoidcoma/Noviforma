@@ -49,13 +49,6 @@ const GridViewport: Component<GridViewportProps> = (props) => {
   const [isGridDragging, setIsGridDragging] = createSignal(false);
   const [gridDragStart, setGridDragStart] = createSignal({ x: 0, y: 0 });
 
-  // Tooltip state
-  const [tooltipVisible, setTooltipVisible] = createSignal(false);
-  const [tooltipText, setTooltipText] = createSignal('');
-  const [tooltipX, setTooltipX] = createSignal(0);
-  const [tooltipY, setTooltipY] = createSignal(0);
-  let tooltipTimeout: number | null = null;
-
   // Lasso selection state
   const [isLassoActive, setIsLassoActive] = createSignal(false);
   const [lassoStart, setLassoStart] = createSignal({ x: 0, y: 0 });
@@ -156,10 +149,10 @@ const GridViewport: Component<GridViewportProps> = (props) => {
             if (textureIndex >= 0) {
               r = 1.0; g = 1.0; b = 1.0;
             } else {
-              // Fallback: Color based on asset ID
-              const hue = ((asset.id * 137.5) % 360) / 360;
-              const rgb = hslToRgb(hue, 0.5, 0.3);
-              r = rgb[0]; g = rgb[1]; b = rgb[2];
+              // Fixed orange color #E05839 = RGB(224, 88, 57) normalized to [0, 1]
+              r = 224 / 255;  // 0.878
+              g = 88 / 255;   // 0.345
+              b = 57 / 255;   // 0.224
             }
           }
 
@@ -220,32 +213,6 @@ const GridViewport: Component<GridViewportProps> = (props) => {
       // Render frame
       renderer!.render();
     });
-  };
-
-  // HSL to RGB conversion for fallback colors
-  const hslToRgb = (h: number, s: number, l: number): [number, number, number] => {
-    let r, g, b;
-
-    if (s === 0) {
-      r = g = b = l;
-    } else {
-      const hue2rgb = (p: number, q: number, t: number) => {
-        if (t < 0) t += 1;
-        if (t > 1) t -= 1;
-        if (t < 1/6) return p + (q - p) * 6 * t;
-        if (t < 1/2) return q;
-        if (t < 2/3) return p + (q - p) * (2/3 - t) * 6;
-        return p;
-      };
-
-      const q = l < 0.5 ? l * (1 + s) : l + s - l * s;
-      const p = 2 * l - q;
-      r = hue2rgb(p, q, h + 1/3);
-      g = hue2rgb(p, q, h);
-      b = hue2rgb(p, q, h - 1/3);
-    }
-
-    return [r, g, b];
   };
 
   // Handle resize events
@@ -633,13 +600,6 @@ const GridViewport: Component<GridViewportProps> = (props) => {
     mouseDownButton = e.button;
     didDrag = false;
 
-    // Hide tooltip
-    setTooltipVisible(false);
-    if (tooltipTimeout) {
-      clearTimeout(tooltipTimeout);
-      tooltipTimeout = null;
-    }
-
     if (e.button === 1) {
       // Middle button → pan
       e.preventDefault();
@@ -680,30 +640,6 @@ const GridViewport: Component<GridViewportProps> = (props) => {
         setLassoStart({ x: mouseDownPos.x, y: mouseDownPos.y });
         setLassoCurrent({ x: e.clientX, y: e.clientY });
       }
-    } else {
-      // Tooltip mode - show after 300ms delay
-      if (tooltipTimeout) {
-        clearTimeout(tooltipTimeout);
-      }
-
-      const clientX = e.clientX;
-      const clientY = e.clientY;
-
-      tooltipTimeout = window.setTimeout(() => {
-        const tileId = screenToTileId(clientX, clientY);
-
-        if (tileId !== null && tileId < props.assets.length) {
-          const asset = props.assets[tileId];
-          if (asset) {
-            setTooltipText(asset.filename);
-            setTooltipX(clientX);
-            setTooltipY(clientY);
-            setTooltipVisible(true);
-          }
-        } else {
-          setTooltipVisible(false);
-        }
-      }, 300);
     }
   };
 
@@ -739,39 +675,41 @@ const GridViewport: Component<GridViewportProps> = (props) => {
       scheduleUpdate();
     }
     mouseDownButton = -1;
-    setTooltipVisible(false);
-    if (tooltipTimeout) {
-      clearTimeout(tooltipTimeout);
-      tooltipTimeout = null;
-    }
   };
 
   // Reset grid view to fit all tiles in viewport
   const resetGridView = () => {
     if (!renderer) return;
 
-    // Calculate grid bounds
-    const tileSizeWithGutter = props.tileSize + props.gutter;
-    const cols = Math.max(1, Math.floor((viewportWidth() + props.gutter) / tileSizeWithGutter));
-    const rows = Math.ceil(props.totalItems / cols);
+    // Calculate grid bounds in device pixels
+    const tileSizeWithGutter = (props.tileSize + props.gutter) * dpr();
+    const cols = Math.max(1, Math.floor((viewportWidth() * dpr() + props.gutter * dpr()) / tileSizeWithGutter));
 
-    const gridWidth = cols * tileSizeWithGutter - props.gutter + GRID_PADDING * 2;
-    const gridHeight = rows * tileSizeWithGutter - props.gutter + GRID_PADDING * 2;
+    // Limit to a reasonable number of rows for comfortable viewing
+    // Instead of fitting ALL items (which could be thousands), fit ~3-5 screens worth
+    const maxRowsToFit = Math.ceil(viewportHeight() * dpr() / tileSizeWithGutter) * 3;
+    const actualRows = Math.ceil(props.totalItems / cols);
+    const rows = Math.min(actualRows, maxRowsToFit);
+
+    const gridWidth = cols * tileSizeWithGutter - props.gutter * dpr() + GRID_PADDING * 2 * dpr();
+    const gridHeight = rows * tileSizeWithGutter - props.gutter * dpr() + GRID_PADDING * 2 * dpr();
 
     // Calculate zoom to fit
-    const zoomX = viewportWidth() / gridWidth;
-    const zoomY = viewportHeight() / gridHeight;
+    const zoomX = (viewportWidth() * dpr()) / gridWidth;
+    const zoomY = (viewportHeight() * dpr()) / gridHeight;
     const fitZoom = Math.min(zoomX, zoomY, 1.0); // Don't zoom in past 1:1
 
-    // Calculate pan to center
-    const scaledWidth = gridWidth * fitZoom;
-    const scaledHeight = gridHeight * fitZoom;
-    const panX = (viewportWidth() - scaledWidth) / 2;
-    const panY = (viewportHeight() - scaledHeight) / 2;
+    // Set a minimum zoom to prevent zooming out too far on large libraries
+    const finalZoom = Math.max(fitZoom, 0.15);
 
-    setGridZoom(fitZoom);
-    setGridPanX(panX * dpr());
-    setGridPanY(panY * dpr());
+    // Position grid 12px from top-left corner (in device pixels)
+    const offsetPx = 12 * dpr();
+    const panX = offsetPx;
+    const panY = offsetPx;
+
+    setGridZoom(finalZoom);
+    setGridPanX(panX);
+    setGridPanY(panY);
 
     updateGridTransform();
     scheduleUpdate();
@@ -1126,27 +1064,6 @@ const GridViewport: Component<GridViewportProps> = (props) => {
                 'z-index': 1
               }}
             />
-
-            {/* Tooltip overlay */}
-            <div
-              style={{
-                position: 'absolute',
-                padding: '6px 10px',
-                background: 'rgba(0, 0, 0, 0.9)',
-                color: '#E2FEFD',
-                'border-radius': '4px',
-                'font-size': '12px',
-                'pointer-events': 'none',
-                'white-space': 'nowrap',
-                'z-index': 3,
-                display: tooltipVisible() ? 'block' : 'none',
-                left: `${tooltipX()}px`,
-                top: `${tooltipY()}px`,
-                transform: 'translate(10px, 10px)'
-              }}
-            >
-              {tooltipText()}
-            </div>
 
             {/* Lasso selection rectangle */}
             <Show when={isLassoActive()}>
