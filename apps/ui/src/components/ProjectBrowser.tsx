@@ -2,7 +2,7 @@ import { Component, createSignal, createEffect, For, onCleanup, Show } from 'sol
 import {
   dbScanDirectory, dbGenerateThumbnails, dbGenerateThumbnailsForFolder,
   dbDeleteFolder, dbGetThumbnailProgress,
-  dbGetAllTagsWithCounts, dbCreateTag, dbDeleteTag,
+  dbGetAllTagsWithCounts, dbCreateTag, dbDeleteTag, dbUpdateTag,
   dbGetAllShots, dbCreateShot, dbDeleteShot,
   type Folder, type TagWithCount, type Shot,
 } from '../lib/database';
@@ -134,6 +134,15 @@ const ProjectBrowser: Component<ProjectBrowserProps> = (props) => {
       await loadTags();
     } catch (error) {
       console.error('Failed to delete tag:', error);
+    }
+  };
+
+  const handleTagColorChange = async (tagId: number, tagName: string, newColor: string) => {
+    try {
+      await dbUpdateTag(tagId, tagName, newColor);
+      await loadTags();
+    } catch (error) {
+      console.error('Failed to update tag color:', error);
     }
   };
 
@@ -488,10 +497,22 @@ const ProjectBrowser: Component<ProjectBrowserProps> = (props) => {
                       classList={{ active: props.activeTagFilters.includes(tag.id) }}
                       onClick={() => handleTagClick(tag.id)}
                     >
-                      <div class="tag-color" style={{ 'background-color': tag.color || '#8a8e7a' }} />
+                      <input
+                        type="color"
+                        class="tag-color-inline"
+                        value={tag.color || '#8a8e7a'}
+                        onInput={(e) => handleTagColorChange(tag.id, tag.name, e.currentTarget.value)}
+                        onClick={(e) => e.stopPropagation()}
+                        title="Change color"
+                      />
                       <span class="tag-name">{tag.name}</span>
                       <span class="tag-count">{tag.count}</span>
-                      <button class="btn-delete-tag" onClick={(e) => handleDeleteTag(tag.id, e)}>×</button>
+                      <button class="btn-delete-tag" onClick={(e) => handleDeleteTag(tag.id, e)} title="Delete tag">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                          <polyline points="3 6 5 6 21 6" />
+                          <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+                        </svg>
+                      </button>
                     </div>
                   )}
                 </For>
@@ -552,7 +573,12 @@ const ProjectBrowser: Component<ProjectBrowserProps> = (props) => {
                           {shot.status}
                         </span>
                       </div>
-                      <button class="btn-delete-tag" onClick={(e) => handleDeleteShot(shot.id, e)}>×</button>
+                      <button class="btn-delete-tag" onClick={(e) => handleDeleteShot(shot.id, e)} title="Delete shot">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                          <polyline points="3 6 5 6 21 6" />
+                          <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+                        </svg>
+                      </button>
                     </div>
                   )}
                 </For>

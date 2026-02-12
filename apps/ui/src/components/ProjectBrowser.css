@@ -290,11 +290,26 @@
   border-color: #5AB6C6;
 }
 
-.tag-color {
-  width: 12px;
-  height: 12px;
+.tag-color-inline {
+  width: 16px;
+  height: 16px;
+  padding: 0;
+  border: 1px solid #4a5e67;
   border-radius: 2px;
+  background: none;
+  cursor: pointer;
   flex-shrink: 0;
+  -webkit-appearance: none;
+  appearance: none;
+}
+
+.tag-color-inline::-webkit-color-swatch-wrapper {
+  padding: 0;
+}
+
+.tag-color-inline::-webkit-color-swatch {
+  border: none;
+  border-radius: 1px;
 }
 
 .tag-name {
@@ -317,11 +332,12 @@
   background: none;
   border: none;
   color: #6a7060;
-  font-size: 16px;
   cursor: pointer;
-  padding: 0 4px;
-  line-height: 1;
+  padding: 2px;
+  line-height: 0;
   transition: all 0.15s;
+  display: flex;
+  align-items: center;
 }
 
 .tag-item:hover .btn-delete-tag,
