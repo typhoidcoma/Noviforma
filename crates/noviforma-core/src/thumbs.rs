@@ -156,6 +156,76 @@ impl ThumbnailGenerator {
         // Default to .jpg if not found (for compatibility)
         folder_cache.join(format!("{}.jpg", asset_id))
     }
+
+    /// Check if thumbnail is fresh (source file hasn't been modified since thumbnail generation)
+    /// Returns true if thumbnail exists AND is up-to-date
+    /// Returns false if thumbnail doesn't exist OR source is newer
+    pub fn is_fresh<P: AsRef<Path>>(&self, asset_path: P, asset_id: i64, folder_hash: &str) -> bool {
+        let asset_path = asset_path.as_ref();
+        let folder_cache = self.get_folder_cache_dir(folder_hash);
+
+        // Find existing thumbnail with any extension
+        let thumb_path = {
+            let mut found_path = None;
+            for ext in &["jpg", "jpeg", "png", "webp", "gif", "bmp", "tiff"] {
+                let path = folder_cache.join(format!("{}.{}", asset_id, ext));
+                if path.exists() {
+                    found_path = Some(path);
+                    break;
+                }
+            }
+            found_path
+        };
+
+        // If thumbnail doesn't exist, it's not fresh
+        let thumb_path = match thumb_path {
+            Some(p) => p,
+            None => return false,
+        };
+
+        // Get source file metadata (mtime)
+        let source_mtime = match std::fs::metadata(asset_path) {
+            Ok(meta) => match meta.modified() {
+                Ok(time) => time,
+                Err(e) => {
+                    tracing::warn!("Failed to get mtime for source {}: {}", asset_path.display(), e);
+                    return false; // Can't verify, assume stale
+                }
+            },
+            Err(e) => {
+                tracing::warn!("Source file inaccessible {}: {}", asset_path.display(), e);
+                return true; // Don't regenerate if source is gone (preserve thumbnail)
+            }
+        };
+
+        // Get thumbnail file metadata (mtime)
+        let thumb_mtime = match std::fs::metadata(&thumb_path) {
+            Ok(meta) => match meta.modified() {
+                Ok(time) => time,
+                Err(e) => {
+                    tracing::warn!("Failed to get mtime for thumbnail {}: {}", thumb_path.display(), e);
+                    return false; // Can't verify, regenerate to be safe
+                }
+            },
+            Err(_) => {
+                return false; // Thumbnail disappeared (race condition)
+            }
+        };
+
+        // Compare: thumbnail is fresh if it was created/modified AFTER or AT SAME TIME as source
+        let is_fresh = thumb_mtime >= source_mtime;
+
+        if !is_fresh {
+            tracing::debug!(
+                "Thumbnail stale for asset {}: source={:?}, thumb={:?}",
+                asset_id,
+                source_mtime,
+                thumb_mtime
+            );
+        }
+
+        is_fresh
+    }
 }
 
 #[cfg(test)]

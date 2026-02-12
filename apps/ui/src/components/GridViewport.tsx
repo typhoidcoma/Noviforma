@@ -49,6 +49,11 @@ const GridViewport: Component<GridViewportProps> = (props) => {
   const [isGridDragging, setIsGridDragging] = createSignal(false);
   const [gridDragStart, setGridDragStart] = createSignal({ x: 0, y: 0 });
 
+  // Momentum state
+  const [gridVelocityX, setGridVelocityX] = createSignal(0);
+  const [gridVelocityY, setGridVelocityY] = createSignal(0);
+  const [isMomentumActive, setIsMomentumActive] = createSignal(false);
+
   // Lasso selection state
   const [isLassoActive, setIsLassoActive] = createSignal(false);
   const [lassoStart, setLassoStart] = createSignal({ x: 0, y: 0 });
@@ -57,6 +62,13 @@ const GridViewport: Component<GridViewportProps> = (props) => {
   let mouseDownButton = -1;
   let didDrag = false;
   let lassoPreviewSet = new Set<number>();
+
+  // Velocity tracking for momentum
+  let lastPanTime = 0;
+  let lastPanX = 0;
+  let lastPanY = 0;
+  let velocitySamples: Array<{vx: number, vy: number, time: number}> = [];
+  let momentumRafId: number | null = null;
 
   let rafId: number | null = null;
   let pendingUpdate = false;
@@ -447,6 +459,9 @@ const GridViewport: Component<GridViewportProps> = (props) => {
   const exitViewerMode = () => {
     console.log('Exiting viewer mode');
 
+    // Cancel any active momentum
+    cancelMomentum();
+
     setViewMode('grid');
     setViewerAssetId(null);
     setViewerZoom(1.0);
@@ -556,6 +571,123 @@ const GridViewport: Component<GridViewportProps> = (props) => {
     renderer.setGridTransform(gridZoom(), gridPanX(), gridPanY());
   };
 
+  /**
+   * Calculate average velocity from recent samples with exponential weighting
+   */
+  const calculateAverageVelocity = (): { vx: number, vy: number } => {
+    if (velocitySamples.length === 0) {
+      return { vx: 0, vy: 0 };
+    }
+
+    // Weight recent samples more heavily
+    let totalWeight = 0;
+    let weightedVx = 0;
+    let weightedVy = 0;
+
+    const now = performance.now();
+
+    for (const sample of velocitySamples) {
+      // Samples decay with age (50ms decay constant)
+      const age = now - sample.time;
+      const weight = Math.exp(-age / 50);
+
+      weightedVx += sample.vx * weight;
+      weightedVy += sample.vy * weight;
+      totalWeight += weight;
+    }
+
+    if (totalWeight === 0) {
+      return { vx: 0, vy: 0 };
+    }
+
+    return {
+      vx: weightedVx / totalWeight,
+      vy: weightedVy / totalWeight,
+    };
+  };
+
+  /**
+   * Cancel any active momentum animation
+   */
+  const cancelMomentum = () => {
+    if (momentumRafId !== null) {
+      cancelAnimationFrame(momentumRafId);
+      momentumRafId = null;
+    }
+    setIsMomentumActive(false);
+    setGridVelocityX(0);
+    setGridVelocityY(0);
+  };
+
+  /**
+   * Start momentum animation with current velocity
+   */
+  const startMomentum = () => {
+    cancelMomentum();
+
+    setIsMomentumActive(true);
+
+    // Clamp velocity to prevent excessive momentum
+    const MAX_VELOCITY = 5.0; // px/ms (5000 px/s)
+    let vx = gridVelocityX();
+    let vy = gridVelocityY();
+
+    const speed = Math.sqrt(vx * vx + vy * vy);
+    if (speed > MAX_VELOCITY) {
+      const scale = MAX_VELOCITY / speed;
+      setGridVelocityX(vx * scale);
+      setGridVelocityY(vy * scale);
+    }
+
+    let lastFrameTime = performance.now();
+
+    const momentumFrame = () => {
+      const now = performance.now();
+      const deltaTime = now - lastFrameTime;
+      lastFrameTime = now;
+
+      // Get current velocity
+      let vx = gridVelocityX();
+      let vy = gridVelocityY();
+
+      // Apply exponential decay (frame-rate independent)
+      const DECAY_FACTOR = 0.92; // Per 60fps frame
+      const VELOCITY_STOP_THRESHOLD = 0.01; // px/ms (10 px/s)
+
+      const decayFactor = Math.pow(DECAY_FACTOR, deltaTime / 16.67);
+      vx *= decayFactor;
+      vy *= decayFactor;
+
+      // Calculate velocity magnitude
+      const speed = Math.sqrt(vx * vx + vy * vy);
+
+      // Stop if velocity is negligible
+      if (speed < VELOCITY_STOP_THRESHOLD) {
+        cancelMomentum();
+        return;
+      }
+
+      // Update velocity signals
+      setGridVelocityX(vx);
+      setGridVelocityY(vy);
+
+      // Apply velocity to pan position
+      const displacementX = vx * deltaTime;
+      const displacementY = vy * deltaTime;
+
+      setGridPanX(gridPanX() + displacementX * dpr());
+      setGridPanY(gridPanY() + displacementY * dpr());
+
+      updateGridTransform();
+      scheduleUpdate();
+
+      // Continue animation
+      momentumRafId = requestAnimationFrame(momentumFrame);
+    };
+
+    momentumRafId = requestAnimationFrame(momentumFrame);
+  };
+
   // Zoom handler with mouse-centered zooming
   const handleGridWheel = (e: WheelEvent) => {
     if (viewMode() !== 'grid' || !containerRef) return;
@@ -603,8 +735,18 @@ const GridViewport: Component<GridViewportProps> = (props) => {
     if (e.button === 1) {
       // Middle button → pan
       e.preventDefault();
+
+      // Cancel any active momentum
+      cancelMomentum();
+
       setIsGridDragging(true);
       setGridDragStart({ x: e.clientX, y: e.clientY });
+
+      // Initialize velocity tracking
+      lastPanTime = performance.now();
+      lastPanX = e.clientX;
+      lastPanY = e.clientY;
+      velocitySamples = [];
     }
     // Left button: wait for drag threshold in mouseMove
   };
@@ -623,6 +765,27 @@ const GridViewport: Component<GridViewportProps> = (props) => {
       setGridPanX(gridPanX() + deltaX * dpr());
       setGridPanY(gridPanY() + deltaY * dpr());
 
+      // Track velocity
+      const now = performance.now();
+      const dt = now - lastPanTime;
+
+      if (dt > 0) {
+        // Calculate instantaneous velocity in px/ms
+        const vx = (e.clientX - lastPanX) / dt;
+        const vy = (e.clientY - lastPanY) / dt;
+
+        // Store sample
+        velocitySamples.push({ vx, vy, time: now });
+
+        // Keep only samples from last 100ms
+        const cutoffTime = now - 100;
+        velocitySamples = velocitySamples.filter(s => s.time > cutoffTime);
+
+        lastPanTime = now;
+        lastPanX = e.clientX;
+        lastPanY = e.clientY;
+      }
+
       updateGridTransform();
       scheduleUpdate();
     } else if (isLassoActive()) {
@@ -635,6 +798,11 @@ const GridViewport: Component<GridViewportProps> = (props) => {
       const dx = e.clientX - mouseDownPos.x;
       const dy = e.clientY - mouseDownPos.y;
       if (Math.abs(dx) + Math.abs(dy) >= 5) {
+        // Cancel momentum when starting lasso
+        if (isMomentumActive()) {
+          cancelMomentum();
+        }
+
         didDrag = true;
         setIsLassoActive(true);
         setLassoStart({ x: mouseDownPos.x, y: mouseDownPos.y });
@@ -648,6 +816,26 @@ const GridViewport: Component<GridViewportProps> = (props) => {
 
     if (isGridDragging()) {
       setIsGridDragging(false);
+
+      // Calculate final velocity and start momentum
+      const finalVelocity = calculateAverageVelocity();
+
+      // Only apply momentum if velocity is significant
+      const velocityMagnitude = Math.sqrt(finalVelocity.vx ** 2 + finalVelocity.vy ** 2);
+      const MIN_VELOCITY_THRESHOLD = 0.1; // px/ms (100 px/s)
+
+      if (velocityMagnitude > MIN_VELOCITY_THRESHOLD) {
+        setGridVelocityX(finalVelocity.vx);
+        setGridVelocityY(finalVelocity.vy);
+        startMomentum();
+      } else {
+        // Velocity too low, don't apply momentum
+        setGridVelocityX(0);
+        setGridVelocityY(0);
+      }
+
+      // Clear velocity tracking
+      velocitySamples = [];
     }
 
     if (isLassoActive()) {
@@ -668,7 +856,24 @@ const GridViewport: Component<GridViewportProps> = (props) => {
 
   const handleGridMouseLeave = () => {
     if (viewMode() !== 'grid') return;
-    setIsGridDragging(false);
+
+    // If dragging when mouse leaves, calculate momentum
+    if (isGridDragging()) {
+      setIsGridDragging(false);
+
+      const finalVelocity = calculateAverageVelocity();
+      const velocityMagnitude = Math.sqrt(finalVelocity.vx ** 2 + finalVelocity.vy ** 2);
+      const MIN_VELOCITY_THRESHOLD = 0.1;
+
+      if (velocityMagnitude > MIN_VELOCITY_THRESHOLD) {
+        setGridVelocityX(finalVelocity.vx);
+        setGridVelocityY(finalVelocity.vy);
+        startMomentum();
+      }
+
+      velocitySamples = [];
+    }
+
     if (isLassoActive()) {
       setIsLassoActive(false);
       lassoPreviewSet = new Set();
@@ -883,6 +1088,9 @@ const GridViewport: Component<GridViewportProps> = (props) => {
         onCleanup(() => {
           resizeObserver.disconnect();
           if (rafId) cancelAnimationFrame(rafId);
+
+          // Cleanup momentum RAF
+          if (momentumRafId) cancelAnimationFrame(momentumRafId);
         });
       }
 

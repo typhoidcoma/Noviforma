@@ -145,7 +145,7 @@ impl DatabaseState {
         let folder_hash = &folder.hash;
 
         let results: Vec<(i64, ThumbOutcome)> = assets.par_iter().map(|asset| {
-            let outcome = if thumb_gen.exists(asset.id, folder_hash) {
+            let outcome = if thumb_gen.is_fresh(&asset.path, asset.id, folder_hash) {
                 ThumbOutcome::Skipped
             } else {
                 match thumb_gen.generate(&asset.path, asset.id, folder_hash) {
