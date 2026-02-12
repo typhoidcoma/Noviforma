@@ -51,6 +51,7 @@ class TextureCache {
   private entries = new Map<number, TextureCacheEntry>(); // assetId -> entry
   private slotUsage = new Map<number, number>(); // slot -> assetId
   private freeSlots: number[] = [];
+  private visibleAssetIds = new Set<number>(); // Currently visible assets
   private maxSlots: number;
   private textureSize: number;
   private device: GPUDevice;
@@ -116,17 +117,21 @@ class TextureCache {
 
   /**
    * Find and evict the least recently used texture
+   * Never evicts textures that are currently visible
    */
   private evictLRU(): number | null {
     if (this.entries.size === 0) {
       return null;
     }
 
-    // Find LRU entry
+    // Find LRU entry (excluding visible assets)
     let oldestEntry: TextureCacheEntry | null = null;
     let oldestAssetId = -1;
 
     for (const [assetId, entry] of this.entries) {
+      // Skip visible assets
+      if (this.visibleAssetIds.has(assetId)) continue;
+
       if (!oldestEntry || entry.lastUsed < oldestEntry.lastUsed) {
         oldestEntry = entry;
         oldestAssetId = assetId;
@@ -175,6 +180,13 @@ class TextureCache {
         entry.lastUsed = now;
       }
     }
+  }
+
+  /**
+   * Mark assets as currently visible (prevents eviction)
+   */
+  markVisible(assetIds: number[]): void {
+    this.visibleAssetIds = new Set(assetIds);
   }
 
   /**
@@ -237,13 +249,13 @@ export class WebGPURenderer {
   private textureArray!: GPUTexture;
   private textureView!: GPUTextureView;
   private sampler!: GPUSampler;
-  private textureArraySize = 256; // Max textures (GPU limitation)
+  private textureArraySize!: number; // Determined at runtime from device capabilities
   private textureCache!: TextureCache;
 
   // High-res texture management
   private hiresTextureArray!: GPUTexture;
   private hiresTextureView!: GPUTextureView;
-  private hiresTextureArraySize = 64;
+  private hiresTextureArraySize!: number; // Determined at runtime
   private hiresTextureCache!: TextureCache;
 
   // State
@@ -276,8 +288,41 @@ export class WebGPURenderer {
       throw new Error('Failed to get WebGPU adapter');
     }
 
-    // Request device
-    this.device = await adapter.requestDevice();
+    // Query adapter limits
+    const adapterLimits = adapter.limits;
+    console.log('WebGPU Adapter Limits:', {
+      maxTextureArrayLayers: adapterLimits.maxTextureArrayLayers,
+      maxTextureDimension2D: adapterLimits.maxTextureDimension2D,
+    });
+
+    // Calculate optimal array sizes (use 80% of max to leave headroom)
+    const maxLayers = adapterLimits.maxTextureArrayLayers;
+    this.textureArraySize = Math.min(maxLayers, Math.floor(maxLayers * 0.8));
+    this.hiresTextureArraySize = Math.min(256, Math.floor(this.textureArraySize * 0.25));
+
+    console.log('Texture Array Configuration:', {
+      lowResArraySize: this.textureArraySize,
+      hiResArraySize: this.hiresTextureArraySize,
+      estimatedVRAM: {
+        lowRes: `${(this.textureArraySize * 0.256).toFixed(0)}MB`,
+        hiRes: `${(this.hiresTextureArraySize * 4).toFixed(0)}MB`,
+        total: `${(this.textureArraySize * 0.256 + this.hiresTextureArraySize * 4).toFixed(0)}MB`
+      }
+    });
+
+    // Warn if GPU only supports minimum spec
+    if (adapterLimits.maxTextureArrayLayers <= 256) {
+      console.warn('⚠️ GPU only supports minimum texture array size (256 layers)');
+      console.warn('Large asset libraries may experience texture flickering');
+      console.warn('Consider upgrading GPU or reducing visible assets');
+    }
+
+    // Request device with required limits
+    this.device = await adapter.requestDevice({
+      requiredLimits: {
+        maxTextureArrayLayers: this.textureArraySize
+      }
+    });
 
     // Get canvas context
     const context = canvas.getContext('webgpu');
@@ -403,16 +448,30 @@ export class WebGPURenderer {
   /**
    * Create render pipelines for grid and viewer modes
    */
+  /**
+   * Compile shader code with runtime-determined array bounds
+   */
+  private compileShader(shaderCode: string): string {
+    return shaderCode
+      .replace(/MAX_LOWRES_LAYERS/g, (this.textureArraySize - 1).toString())
+      .replace(/MAX_HIRES_LAYERS/g, (this.hiresTextureArraySize - 1).toString())
+      .replace(/HIRES_OFFSET/g, this.textureArraySize.toString());
+  }
+
   private async createPipelines(): Promise<void> {
+    // Compile shaders with runtime array bounds
+    const compiledGridShaderCode = this.compileShader(gridShaderCode);
+    const compiledViewerShaderCode = this.compileShader(viewerShaderCode);
+
     // Load shaders
     const gridShader = this.device.createShaderModule({
-      label: 'Grid Shader',
-      code: gridShaderCode,
+      label: 'Grid Shader (compiled)',
+      code: compiledGridShaderCode,
     });
 
     const viewerShader = this.device.createShaderModule({
-      label: 'Viewer Shader',
-      code: viewerShaderCode,
+      label: 'Viewer Shader (compiled)',
+      code: compiledViewerShaderCode,
     });
 
     // Create bind group layout (shared by both pipelines)
@@ -679,6 +738,7 @@ export class WebGPURenderer {
    */
   markVisibleTextures(assetIds: number[]): void {
     this.textureCache.markUsed(assetIds);
+    this.textureCache.markVisible(assetIds);
   }
 
   /**
@@ -686,6 +746,27 @@ export class WebGPURenderer {
    */
   getCurrentTextureSlot(assetId: number): number {
     return this.textureCache.getSlot(assetId) ?? -1;
+  }
+
+  /**
+   * Get low-res texture array size
+   */
+  getTextureArraySize(): number {
+    return this.textureArraySize;
+  }
+
+  /**
+   * Get high-res texture array size
+   */
+  getHiresTextureArraySize(): number {
+    return this.hiresTextureArraySize;
+  }
+
+  /**
+   * Get high-res texture slot for asset
+   */
+  getHiresTextureSlot(assetId: number): number {
+    return this.hiresTextureCache.getSlot(assetId) ?? -1;
   }
 
   /**
@@ -763,6 +844,7 @@ export class WebGPURenderer {
    */
   markVisibleHiresTextures(assetIds: number[]): void {
     this.hiresTextureCache.markUsed(assetIds);
+    this.hiresTextureCache.markVisible(assetIds);
   }
 
   /**

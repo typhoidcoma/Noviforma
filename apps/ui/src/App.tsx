@@ -26,6 +26,9 @@ const App: Component = () => {
   const stored = loadSettings();
   const [columns, setColumns] = createSignal(stored.columns);
   const [gutter, setGutter] = createSignal(stored.gutter);
+  const [textureCacheSize, setTextureCacheSize] = createSignal<string>(
+    stored.useMaxTextureArraySize ? 'maximum' : 'large'
+  );
   const [showSettings, setShowSettings] = createSignal(false);
 
   // Resizable panel widths (initialized from settings)
@@ -220,17 +223,29 @@ const App: Component = () => {
 
   // Settings persistence
   const persistSettings = () => {
+    // Map textureCacheSize preset to settings values
+    const presets: Record<string, { maxTextureCacheMB: number; useMaxTextureArraySize: boolean }> = {
+      small: { maxTextureCacheMB: 64, useMaxTextureArraySize: false },
+      medium: { maxTextureCacheMB: 256, useMaxTextureArraySize: false },
+      large: { maxTextureCacheMB: 512, useMaxTextureArraySize: false },
+      maximum: { maxTextureCacheMB: 512, useMaxTextureArraySize: true },
+    };
+    const preset = presets[textureCacheSize()] || presets.maximum;
+
     saveSettings({
       columns: columns(),
       gutter: gutter(),
       leftPanelWidth: leftPanelWidth(),
       rightPanelWidth: rightPanelWidth(),
+      maxTextureCacheMB: preset.maxTextureCacheMB,
+      useMaxTextureArraySize: preset.useMaxTextureArraySize,
     });
   };
 
-  const handleApplySettings = (newColumns: number, newGutter: number) => {
+  const handleApplySettings = (newColumns: number, newGutter: number, newTextureCacheSize: string) => {
     setColumns(newColumns);
     setGutter(newGutter);
+    setTextureCacheSize(newTextureCacheSize);
     persistSettings();
   };
 
@@ -327,6 +342,7 @@ const App: Component = () => {
         columns={columns()}
         gutter={gutter()}
         dbPath={dbPath()}
+        textureCacheSize={textureCacheSize()}
         onApply={handleApplySettings}
       />
     </div>

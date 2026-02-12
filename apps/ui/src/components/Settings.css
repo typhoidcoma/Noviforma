@@ -108,6 +108,30 @@
   word-break: break-all;
 }
 
+.settings-select {
+  padding: 4px 8px;
+  background: #3B4E57;
+  color: #E2FEFD;
+  border: 1px solid #4a5e67;
+  border-radius: 4px;
+  font-size: 13px;
+  cursor: pointer;
+  min-width: 180px;
+}
+
+.settings-select:focus {
+  outline: none;
+  border-color: #5AB6C6;
+}
+
+.settings-description {
+  font-size: 11px;
+  color: #6a7060;
+  margin: 4px 0 0 0;
+  line-height: 1.4;
+  font-style: italic;
+}
+
 .settings-footer {
   display: flex;
   justify-content: flex-end;

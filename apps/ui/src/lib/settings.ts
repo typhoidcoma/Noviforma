@@ -7,6 +7,8 @@ export interface AppSettings {
   gutter: number;         // px between tiles (0-64)
   leftPanelWidth: number;
   rightPanelWidth: number;
+  maxTextureCacheMB: number;      // VRAM limit for texture cache (MB)
+  useMaxTextureArraySize: boolean; // auto-detect max GPU layers
 }
 
 export const DEFAULT_SETTINGS: AppSettings = {
@@ -14,6 +16,8 @@ export const DEFAULT_SETTINGS: AppSettings = {
   gutter: 32,
   leftPanelWidth: 240,
   rightPanelWidth: 280,
+  maxTextureCacheMB: 512,          // Default to 512MB
+  useMaxTextureArraySize: true,    // Default to auto-detect max
 };
 
 const STORAGE_KEY = 'noviforma-settings';

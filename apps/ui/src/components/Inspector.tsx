@@ -6,7 +6,7 @@ import {
   dbGetAssetShots, dbAddAssetToShot, dbRemoveAssetFromShot,
   type Asset, type Tag, type Shot,
 } from '../lib/database';
-import { getThumbnailUrl } from '../lib/asset-urls';
+import { getAssetUrl } from '../lib/asset-urls';
 import './Inspector.css';
 
 interface InspectorProps {
@@ -295,11 +295,11 @@ const Inspector: Component<InspectorProps> = (props) => {
                 onMouseLeave={handleMouseUp}
                 style={{ cursor: zoom() > 1 ? 'grab' : 'default' }}
               >
-                <Show when={asset.thumbnail_path} fallback={
+                <Show when={asset.path} fallback={
                   <div class="inspector-preview-empty">No preview</div>
                 }>
                   <img
-                    src={getThumbnailUrl(asset.thumbnail_path!)}
+                    src={getAssetUrl(asset.path)}
                     alt={asset.filename}
                     class="inspector-preview-img"
                     style={{

@@ -8,23 +8,26 @@ interface SettingsProps {
   columns: number;
   gutter: number;
   dbPath: string;
-  onApply: (columns: number, gutter: number) => void;
+  textureCacheSize: string; // 'small' | 'medium' | 'large' | 'maximum'
+  onApply: (columns: number, gutter: number, textureCacheSize: string) => void;
 }
 
 const Settings: Component<SettingsProps> = (props) => {
   // Local draft state — reset from props each time modal opens
   const [draftColumns, setDraftColumns] = createSignal(props.columns);
   const [draftGutter, setDraftGutter] = createSignal(props.gutter);
+  const [draftTextureCacheSize, setDraftTextureCacheSize] = createSignal(props.textureCacheSize);
 
   createEffect(() => {
     if (props.show) {
       setDraftColumns(props.columns);
       setDraftGutter(props.gutter);
+      setDraftTextureCacheSize(props.textureCacheSize);
     }
   });
 
   const handleApply = () => {
-    props.onApply(draftColumns(), draftGutter());
+    props.onApply(draftColumns(), draftGutter(), draftTextureCacheSize());
     props.onClose();
   };
 
@@ -79,6 +82,30 @@ const Settings: Component<SettingsProps> = (props) => {
               <span class="settings-value">{draftGutter()}px</span>
             </div>
           </div>
+        </div>
+
+        <div class="settings-section">
+          <h4>Performance</h4>
+
+          <div class="settings-row">
+            <label>Texture Cache Size</label>
+            <div class="settings-control">
+              <select
+                class="settings-select"
+                value={draftTextureCacheSize()}
+                onChange={(e) => setDraftTextureCacheSize(e.currentTarget.value)}
+              >
+                <option value="small">Small (256 images)</option>
+                <option value="medium">Medium (512 images)</option>
+                <option value="large">Large (1024 images)</option>
+                <option value="maximum">Maximum (auto-detect)</option>
+              </select>
+            </div>
+          </div>
+          <p class="settings-description">
+            Higher values use more VRAM but prevent image flickering in large libraries.
+            Requires app restart.
+          </p>
         </div>
 
         <div class="settings-section">

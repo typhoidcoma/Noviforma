@@ -94,11 +94,11 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
 
     // Determine which texture tier to sample from
     // texture_index < 0: no texture (solid color)
-    // texture_index 0-255: low-res array
-    // texture_index 256+: high-res array (actual index = texture_index - 256)
-    let is_hires = in.texture_index >= 256.0;
-    let hires_idx = clamp(i32(in.texture_index - 256.0), 0, 63);
-    let lores_idx = clamp(i32(in.texture_index), 0, 255);
+    // texture_index 0 to HIRES_OFFSET-1: low-res array
+    // texture_index HIRES_OFFSET+: high-res array
+    let is_hires = in.texture_index >= f32(HIRES_OFFSET);
+    let hires_idx = clamp(i32(in.texture_index - f32(HIRES_OFFSET)), 0, MAX_HIRES_LAYERS);
+    let lores_idx = clamp(i32(in.texture_index), 0, MAX_LOWRES_LAYERS);
 
     let hires_sample = textureSample(hires_texture, texture_sampler, in.uv, hires_idx);
     let lores_sample = textureSample(tile_texture, texture_sampler, in.uv, lores_idx);

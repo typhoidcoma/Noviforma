@@ -135,7 +135,9 @@ const GridViewport: Component<GridViewportProps> = (props) => {
             if (needsHires && asset.thumbnail_path) {
               const hiresSlot = renderer!.getHiresTextureSlot(asset.id);
               if (hiresSlot >= 0) {
-                textureIndex = hiresSlot + 256; // Encode as high-res
+                // Encode as high-res using dynamic offset
+                const hiresOffset = renderer!.getTextureArraySize();
+                textureIndex = hiresSlot + hiresOffset;
               } else if (!hiresLoadingSet.has(asset.id)) {
                 // Load from 1024px thumbnail cache (much faster than full original)
                 hiresLoadingSet.add(asset.id);
@@ -274,36 +276,35 @@ const GridViewport: Component<GridViewportProps> = (props) => {
     const screenY = (clientY - rect.top) * dpr();
 
     // Inverse transform: screen -> world coordinates
-    // Forward: screen = world * zoom + pan
-    // Inverse: world = (screen - pan) / zoom
     const worldX = (screenX - gridPanX()) / gridZoom();
     const worldY = (screenY - gridPanY()) / gridZoom();
 
-    const tileSizeWithGutter = (props.tileSize + props.gutter) * dpr();
-    const cols = Math.max(1, Math.floor((viewportWidth() * dpr() + props.gutter * dpr()) / tileSizeWithGutter));
+    // Check each visible tile to see if mouse is inside its bounds
+    // This approach works correctly with any column configuration (auto or fixed)
+    const tiles = visibleTiles();
+    const paddingScaled = GRID_PADDING * dpr();
 
-    if (cols === 0) return null;
+    for (const tile of tiles) {
+      const tileWorldX = tile.x * dpr() + paddingScaled;
+      const tileWorldY = tile.y * dpr() + paddingScaled;
+      const tileWorldW = tile.w * dpr();
+      const tileWorldH = tile.h * dpr();
 
-    // Subtract grid padding to get grid-local coordinates
-    const gridX = worldX - GRID_PADDING * dpr();
-    const gridY = worldY - GRID_PADDING * dpr();
+      // Check if world coordinates are inside this tile
+      if (worldX >= tileWorldX && worldX < tileWorldX + tileWorldW &&
+          worldY >= tileWorldY && worldY < tileWorldY + tileWorldH) {
+        return tile.id;
+      }
+    }
 
-    const col = Math.floor(gridX / tileSizeWithGutter);
-    const row = Math.floor(gridY / tileSizeWithGutter);
-
-    if (col < 0 || col >= cols) return null;
-
-    const tileId = row * cols + col;
-
-    if (tileId < 0 || tileId >= props.totalItems) return null;
-
-    return tileId;
+    return null;
   };
 
   // Handle tile clicks for selection
   const handleClick = (e: MouseEvent) => {
     if (viewMode() !== 'grid') return;
-    if (didDrag) { didDrag = false; return; }
+    // Ignore clicks that were part of a drag operation (lasso already handled selection)
+    if (didDrag) return;
 
     const tileId = screenToTileId(e.clientX, e.clientY);
 
@@ -721,6 +722,11 @@ const GridViewport: Component<GridViewportProps> = (props) => {
       scheduleUpdate();
     }
 
+    // Reset drag flag after click event has had a chance to check it
+    // (mouseup fires before click in the event cycle)
+    if (didDrag) {
+      setTimeout(() => { didDrag = false; }, 0);
+    }
     mouseDownButton = -1;
   };
 
