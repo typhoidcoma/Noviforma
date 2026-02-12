@@ -1007,29 +1007,27 @@ const GridViewport: Component<GridViewportProps> = (props) => {
     <div class="grid-viewport" ref={containerRef}>
       {viewMode() === 'grid' ? (
         <>
-          {props.totalItems > 0 && (
-            <div class="grid-viewport-info">
-              <span>Visible: {visibleTileCount()} tiles</span>
-              <span>Total: {props.totalItems.toLocaleString()} items</span>
-              {loadingTextures() && (
-                <span style="color: #5AB6C6;">
-                  Loading textures: {texturesLoaded()} / {props.totalItems}
-                </span>
-              )}
+          <div class="grid-viewport-info">
+            <span>Visible: {visibleTileCount()} tiles</span>
+            <span>Total: {props.totalItems.toLocaleString()} items</span>
+            {loadingTextures() && (
               <span style="color: #5AB6C6;">
-                Zoom: {(gridZoom() * 100).toFixed(0)}%
+                Loading textures: {texturesLoaded()} / {props.totalItems}
               </span>
-              <span>Viewport: {viewportWidth().toFixed(0)}x{viewportHeight().toFixed(0)} @ {dpr().toFixed(2)}x</span>
-              {props.selectedAssets.length > 0 && (
-                <span style="color: #5AB6C6;">
-                  {props.selectedAssets.length} selected
-                </span>
-              )}
-              <span style="color: #8a8e7a;">
-                Drag select • Middle pan • Wheel zoom • +/- • 0 reset • F focus
+            )}
+            <span style="color: #5AB6C6;">
+              Zoom: {(gridZoom() * 100).toFixed(0)}%
+            </span>
+            <span>Viewport: {viewportWidth().toFixed(0)}x{viewportHeight().toFixed(0)} @ {dpr().toFixed(2)}x</span>
+            {props.selectedAssets.length > 0 && (
+              <span style="color: #5AB6C6;">
+                {props.selectedAssets.length} selected
               </span>
-            </div>
-          )}
+            )}
+            <span style="color: #8a8e7a;">
+              Drag select • Middle pan • Wheel zoom • +/- • 0 reset • F focus
+            </span>
+          </div>
 
           {props.totalItems === 0 && (
             <div class="grid-empty-state">

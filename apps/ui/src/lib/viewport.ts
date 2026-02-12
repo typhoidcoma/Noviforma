@@ -77,7 +77,7 @@ export function calculateVisibleTiles(config: GridConfig): TileRect[] {
         x: worldX / dpr, // Convert to logical pixels
         y: worldY / dpr,
         w: tileSize,
-        h: Math.round(tileSize * 0.75), // 4:3 aspect ratio
+        h: tileSize,
       });
     }
   }

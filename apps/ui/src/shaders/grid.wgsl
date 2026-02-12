@@ -19,9 +19,6 @@ var<uniform> transform: mat4x4<f32>;
 @group(0) @binding(4)
 var hires_texture: texture_2d_array<f32>;
 
-@group(0) @binding(5)
-var<uniform> time: f32;
-
 // Vertex input: unit quad (0,0 to 1,1)
 struct VertexInput {
     @location(0) position: vec2<f32>,
@@ -109,20 +106,9 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     // Select high-res or low-res sample
     let tex_color = select(lores_sample, hires_sample, is_hires);
 
-    // Use texture if texture_index >= 0, otherwise use animated placeholder
-    if (in.texture_index < 0.0) {
-      // Animated placeholder: fade alpha with smooth sine wave
-      let cycle_duration = 2.0;  // 2 seconds per fade cycle
-      let min_alpha = 0.4;
-      let max_alpha = 0.8;
-      let phase = (time % cycle_duration) / cycle_duration;  // 0.0 to 1.0
-      let sine_wave = sin(phase * 2.0 * 3.14159);  // -1.0 to 1.0
-      let alpha = min_alpha + (max_alpha - min_alpha) * (sine_wave * 0.5 + 0.5);  // 0.4 to 0.8
-
-      return vec4<f32>(in.color.r, in.color.g, in.color.b, alpha);
-    }
-
+    // Use texture if texture_index >= 0, otherwise use solid color
     // Texture is tinted by in.color (1,1,1 = no tint; >1 = brighten)
+    let use_texture = f32(in.texture_index >= 0.0);
     let textured_result = tex_color * in.color;
-    return textured_result;
+    return mix(in.color, textured_result, use_texture);
 }

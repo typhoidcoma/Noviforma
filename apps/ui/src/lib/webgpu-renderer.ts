@@ -244,7 +244,6 @@ export class WebGPURenderer {
   private instanceCapacity = 10000; // Start with capacity for 10k tiles
   private viewportBuffer!: GPUBuffer;
   private transformBuffer!: GPUBuffer;
-  private timeUniformBuffer!: GPUBuffer;
 
   // Texture management
   private textureArray!: GPUTexture;
@@ -394,13 +393,6 @@ export class WebGPURenderer {
       0, 0, 0, 1,
     ]);
     this.device.queue.writeBuffer(this.transformBuffer, 0, identity);
-
-    // Time uniform buffer for animations
-    this.timeUniformBuffer = this.device.createBuffer({
-      label: 'Time Uniform Buffer',
-      size: 4, // Single f32 for time in seconds
-      usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
-    });
   }
 
   /**
@@ -516,12 +508,6 @@ export class WebGPURenderer {
           visibility: GPUShaderStage.FRAGMENT,
           texture: { sampleType: 'float', viewDimension: '2d-array' },
         },
-        // Binding 5: Time uniform for animations
-        {
-          binding: 5,
-          visibility: GPUShaderStage.FRAGMENT,
-          buffer: { type: 'uniform' },
-        },
       ],
     });
 
@@ -535,7 +521,6 @@ export class WebGPURenderer {
         { binding: 2, resource: this.textureView },
         { binding: 3, resource: { buffer: this.transformBuffer } },
         { binding: 4, resource: this.hiresTextureView },
-        { binding: 5, resource: { buffer: this.timeUniformBuffer } },
       ],
     });
 
@@ -941,14 +926,6 @@ export class WebGPURenderer {
    * Render current frame
    */
   render(): void {
-    // Update time uniform for animations
-    const timeSeconds = performance.now() / 1000;
-    this.device.queue.writeBuffer(
-      this.timeUniformBuffer,
-      0,
-      new Float32Array([timeSeconds])
-    );
-
     // Get current texture
     const currentTexture = this.context.getCurrentTexture();
     const textureView = currentTexture.createView();
