@@ -4,7 +4,7 @@
   "identifier": "com.noviforma.app",
   "build": {
     "devUrl": "http://localhost:5173",
-    "frontendDist": "../apps/ui/dist"
+    "frontendDist": "../apps/ui-react/dist"
   },
   "app": {
     "windows": [
